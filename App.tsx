@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, StyleSheet, Dimensions, Pressable, Text } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import Animated, { useSharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withDelay } from "react-native-reanimated";
 
 const numRows = 8;
 const numCols = 8;
