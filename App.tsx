@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, Dimensions, Pressable, Text } from "react-native";
+import { View, StyleSheet, Dimensions, Pressable, Text, Platform, BackHandler } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withDelay, runOnJS } from "react-native-reanimated";
 import { GestureHandlerRootView, GestureDetector, Gesture } from "react-native-gesture-handler";
@@ -66,6 +66,19 @@ export default function App() {
       setTimeLeft(0);
     }
   }, [timeLeft]);
+
+  useEffect(() => {
+    if (Platform.OS === "android") {
+      const backAction = () => {
+        // Returning true prevents the default action (closing the app)
+        return true;
+      };
+
+      const backHandler = BackHandler.addEventListener("hardwareBackPress", backAction);
+
+      return () => backHandler.remove();
+    }
+  }, []);
 
   const resetBoard = () => {
     const newBoard: Block[][] = [];
