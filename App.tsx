@@ -36,6 +36,7 @@ export default function App() {
   const [gameState, setGameState] = useState<"playing" | "game_over">("playing");
   const [timeLeft, setTimeLeft] = useState(60);
   const [maxCombo, setMaxCombo] = useState(1);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     resetGame();
@@ -199,9 +200,12 @@ export default function App() {
   };
 
   const handleSwap = (r1: number, c1: number, r2: number, c2: number) => {
+    if (isProcessing) return;
+
     if (r1 < 0 || r1 >= numRows || c1 < 0 || c1 >= numCols || r2 < 0 || r2 >= numRows || c2 < 0 || c2 >= numCols) {
       return;
     }
+    setIsProcessing(true);
 
     const block1 = board[r1][c1];
     const block2 = board[r2][c2];
@@ -238,6 +242,7 @@ export default function App() {
             processBomb(boardAfterDrop, nextMatches);
           } else {
             setBoard(boardAfterDrop);
+            setIsProcessing(false); // Unlock
           }
         }, duration);
       };
@@ -252,7 +257,10 @@ export default function App() {
 
     if (initialMatches.size === 0) {
       setBoard(swappedBoard);
-      setTimeout(() => setBoard(board), duration);
+      setTimeout(() => {
+        setBoard(board);
+        setIsProcessing(false); // Unlock
+      }, duration);
       return;
     }
 
@@ -299,6 +307,7 @@ export default function App() {
           processMatches(boardAfterDrop, nextMatches, false);
         } else {
           setBoard(boardAfterDrop);
+          setIsProcessing(false); // Unlock
         }
       };
 
