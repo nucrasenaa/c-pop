@@ -32,6 +32,7 @@ export default function App() {
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(1);
   const [lineFlashes, setLineFlashes] = useState<{ key: number; type: "row" | "col"; index: number }[]>([]);
+  const [swipeStart, setSwipeStart] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     resetBoard();
@@ -290,38 +291,44 @@ export default function App() {
     processMatches(swappedBoard, initialMatches, true);
   };
 
-  const panGesture = Gesture.Pan().onEnd((event) => {
-    const { translationX, translationY, absoluteX, absoluteY } = event;
-    // This needs adjustment, the event coords are absolute, not relative to the board
-    // For now, assuming the board is centered and taking up most of the screen
-    // A more robust solution would use measurements.
-    const startC = Math.floor((absoluteX - (Dimensions.get("window").width - numCols * cellSize) / 2) / cellSize);
-    const startR = Math.floor((absoluteY - (Dimensions.get("window").height - numRows * cellSize) / 2) / cellSize);
+  const panGesture = Gesture.Pan()
+    .onStart((event) => {
+      setSwipeStart({ x: event.x, y: event.y });
+    })
+    .onEnd((event) => {
+      if (!swipeStart) return;
 
+      const { translationX, translationY } = event;
+      const startC = Math.floor(swipeStart.x / cellSize);
+      const startR = Math.floor(swipeStart.y / cellSize);
 
-    const absX = Math.abs(translationX);
-    const absY = Math.abs(translationY);
+      const absX = Math.abs(translationX);
+      const absY = Math.abs(translationY);
 
-    if (absX < 20 && absY < 20) return; // Not a swipe
+      if (absX < 20 && absY < 20) {
+        setSwipeStart(null);
+        return; // Not a swipe
+      }
 
-    let endR = startR;
-    let endC = startC;
+      let endR = startR;
+      let endC = startC;
 
-    if (absX > absY) {
-      endC = translationX > 0 ? startC + 1 : startC - 1;
-    } else {
-      endR = translationY > 0 ? startR + 1 : startR - 1;
-    }
-    handleSwap(startR, startC, endR, endC);
-  });
+      if (absX > absY) {
+        endC = translationX > 0 ? startC + 1 : startC - 1;
+      } else {
+        endR = translationY > 0 ? startR + 1 : startR - 1;
+      }
+      handleSwap(startR, startC, endR, endC);
+      setSwipeStart(null); // Reset
+    });
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <GestureDetector gesture={panGesture}>
-        <View style={styles.container}>
-          <StatusBar style="light" />
-          <Text style={styles.scoreText}>Score: {score}</Text>
-          {combo > 1 && <Text style={styles.comboText}>Combo x{combo}!</Text>}
+      <View style={styles.container}>
+        <StatusBar style="light" />
+        <Text style={styles.scoreText}>Score: {score}</Text>
+        {combo > 1 && <Text style={styles.comboText}>Combo x{combo}!</Text>}
+        <GestureDetector gesture={panGesture}>
           <View
             style={{
               width: cellSize * numCols,
@@ -337,8 +344,8 @@ export default function App() {
               <Flash key={flash.key} type={flash.type} index={flash.index} />
             ))}
           </View>
-        </View>
-      </GestureDetector>
+        </GestureDetector>
+      </View>
     </GestureHandlerRootView>
   );
 }
