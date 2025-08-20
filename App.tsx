@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, Dimensions, Pressable } from "react-native";
+import { View, StyleSheet, Dimensions, Pressable, Text } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
 
@@ -22,11 +22,14 @@ type Block = {
   color: string;
   row: number;
   col: number;
+  specialType: "line_clear" | "color_bomb" | null;
 };
 
 export default function App() {
   const [board, setBoard] = useState<Block[][]>([]);
   const [selected, setSelected] = useState<[number, number] | null>(null);
+  const [score, setScore] = useState(0);
+  const [combo, setCombo] = useState(1);
 
   useEffect(() => {
     resetBoard();
@@ -37,7 +40,7 @@ export default function App() {
     for (let r = 0; r < numRows; r++) {
       const row: Block[] = [];
       for (let c = 0; c < numCols; c++) {
-        row.push({ color: randomColor(), id: getNextId(), row: r, col: c });
+        row.push({ color: randomColor(), id: getNextId(), row: r, col: c, specialType: null });
       }
       newBoard.push(row);
     }
@@ -93,10 +96,26 @@ export default function App() {
     return matches;
   };
 
-  const clearAndDrop = (brd: Block[][], matches: Set<string>) => {
+  const clearAndDrop = (
+    brd: Block[][],
+    matches: Set<string>,
+    specialBlockToCreate: { pos: string; type: "line_clear" | "color_bomb" } | null
+  ) => {
     const newBoard = brd.map((row) => row.map((block) => ({ ...block })));
 
+    if (specialBlockToCreate) {
+      const [r, c] = specialBlockToCreate.pos.split(",").map(Number);
+      newBoard[r][c].specialType = specialBlockToCreate.type;
+      // Make the color bomb visually distinct by making it colorless
+      if (specialBlockToCreate.type === "color_bomb") {
+        newBoard[r][c].color = "white";
+      }
+    }
+
     matches.forEach((match) => {
+      if (specialBlockToCreate && specialBlockToCreate.pos === match) {
+        return; // Don't clear the block that is becoming special
+      }
       const [r, c] = match.split(",").map(Number);
       newBoard[r][c].color = ""; // Mark as empty
     });
@@ -119,6 +138,7 @@ export default function App() {
           color: randomColor(),
           row: r,
           col: c,
+          specialType: null,
         };
       }
     }
@@ -132,46 +152,118 @@ export default function App() {
     }
 
     const [r1, c1] = selected;
+    const r2 = r,
+      c2 = c;
     setSelected(null);
 
-    // Check for adjacent selection
-    if (Math.abs(r1 - r) + Math.abs(c1 - c) !== 1) {
+    if (Math.abs(r1 - r2) + Math.abs(c1 - c2) !== 1) {
       return;
     }
 
-    const swappedBoard = swap(r1, c1, r, c);
+    const block1 = board[r1][c1];
+    const block2 = board[r2][c2];
+
+    // --- Color Bomb Activation Logic ---
+    let colorToClear: string | null = null;
+    if (block1.specialType === "color_bomb" && block1.color) colorToClear = block2.color;
+    if (block2.specialType === "color_bomb" && block2.color) colorToClear = block1.color;
+
+    if (colorToClear) {
+      const bombPosition = block1.specialType === "color_bomb" ? `${r1},${c1}` : `${r2},${c2}`;
+      const blocksToClear = new Set<string>([bombPosition]);
+      board.flat().forEach((block) => {
+        if (block.color === colorToClear) {
+          blocksToClear.add(`${block.row},${block.col}`);
+        }
+      });
+
+      let currentCombo = 1;
+      setCombo(currentCombo);
+
+      const processBomb = (boardToProcess: Block[][], matchesToProcess: Set<string>) => {
+        setScore((prev) => prev + matchesToProcess.size * 10 * currentCombo);
+        const nextBoard = clearAndDrop(boardToProcess, matchesToProcess, null);
+        setBoard(nextBoard);
+        const nextMatches = findMatches(nextBoard);
+        if (nextMatches.size > 0) {
+          currentCombo++;
+          setCombo(currentCombo);
+          setTimeout(() => processBomb(nextBoard, nextMatches), duration * 2);
+        }
+      };
+
+      setTimeout(() => processBomb(board, blocksToClear), duration);
+      return;
+    }
+    // --- End of Color Bomb Logic ---
+
+    const swappedBoard = swap(r1, c1, r2, c2);
     const initialMatches = findMatches(swappedBoard);
 
     if (initialMatches.size === 0) {
-      // No match, animate swap and swap back
       setBoard(swappedBoard);
       setTimeout(() => setBoard(board), duration);
       return;
     }
 
-    // Matches found, start clearing and dropping
-    const processMatches = (currentBoard: Block[][]) => {
-      const matches = findMatches(currentBoard);
-      if (matches.size > 0) {
-        const nextBoard = clearAndDrop(currentBoard, matches);
-        setBoard(nextBoard);
-        // Use timeout to allow animation and create a cascading effect
-        setTimeout(() => processMatches(nextBoard), duration * 2);
+    setBoard(swappedBoard);
+
+    let currentCombo = 1;
+    setCombo(currentCombo);
+
+    let specialBlockInfo: { pos: string; type: "line_clear" | "color_bomb" } | null = null;
+    if (initialMatches.size === 4) {
+      specialBlockInfo = { pos: `${r2},${c2}`, type: "line_clear" };
+    } else if (initialMatches.size >= 5) {
+      specialBlockInfo = { pos: `${r2},${c2}`, type: "color_bomb" };
+    }
+
+    const processMatches = (
+      boardToProcess: Block[][],
+      matchesToProcess: Set<string>,
+      isInitial: boolean
+    ) => {
+      // --- Line Clear Activation Logic ---
+      let blocksToClear = new Set(matchesToProcess);
+      matchesToProcess.forEach((matchPos) => {
+        const [mr, mc] = matchPos.split(",").map(Number);
+        const block = boardToProcess[mr][mc];
+        if (block.specialType === "line_clear") {
+          for (let i = 0; i < numCols; i++) blocksToClear.add(`${mr},${i}`);
+          for (let i = 0; i < numRows; i++) blocksToClear.add(`${i},${mc}`);
+        }
+      });
+      // --- End of Line Clear Logic ---
+
+      setScore((prev) => prev + blocksToClear.size * 10 * currentCombo);
+
+      const special = isInitial ? specialBlockInfo : null;
+      const nextBoard = clearAndDrop(boardToProcess, blocksToClear, special);
+      setBoard(nextBoard);
+
+      const nextMatches = findMatches(nextBoard);
+
+      if (nextMatches.size > 0) {
+        currentCombo++;
+        setCombo(currentCombo);
+        setTimeout(() => processMatches(nextBoard, nextMatches, false), duration * 2);
       }
     };
 
-    setBoard(swappedBoard);
-    setTimeout(() => processMatches(swappedBoard), duration);
+    setTimeout(() => processMatches(swappedBoard, initialMatches, true), duration);
   };
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
+      <Text style={styles.scoreText}>Score: {score}</Text>
+      {combo > 1 && <Text style={styles.comboText}>Combo x{combo}!</Text>}
       <View
         style={{
           width: cellSize * numCols,
           height: cellSize * numRows,
           position: "relative",
+          marginTop: 20,
         }}
       >
         {board.flat().map((block) => (
@@ -200,6 +292,9 @@ function BlockView({ block, selected, onPress }: { block: Block; selected: boole
     transform: [{ translateX: x.value }, { translateY: y.value }],
   }));
 
+  const isLineClear = block.specialType === "line_clear";
+  const isColorBomb = block.specialType === "color_bomb";
+
   return (
     <Animated.View
       style={[
@@ -220,10 +315,12 @@ function BlockView({ block, selected, onPress }: { block: Block; selected: boole
           flex: 1,
           backgroundColor: block.color || "black",
           borderRadius: 6,
-          borderWidth: selected ? 3 : 0,
-          borderColor: "white",
+          borderWidth: selected ? 3 : isLineClear || isColorBomb ? 3 : 0,
+          borderColor: isLineClear ? "white" : isColorBomb ? "#ffc107" : "white",
+          transform: [{ rotate: isLineClear ? "45deg" : "0deg" }],
         }}
       />
+      {isColorBomb && <View style={styles.colorBombCore} />}
     </Animated.View>
   );
 }
@@ -234,5 +331,27 @@ const styles = StyleSheet.create({
     backgroundColor: "#111",
     justifyContent: "center",
     alignItems: "center",
+  },
+  scoreText: {
+    color: "white",
+    fontSize: 24,
+    fontWeight: "bold",
+  },
+  comboText: {
+    color: "#ffc107",
+    fontSize: 28,
+    fontWeight: "bold",
+    textShadowColor: "rgba(0, 0, 0, 0.75)",
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
+  },
+  colorBombCore: {
+    position: "absolute",
+    top: "40%",
+    left: "40%",
+    width: "20%",
+    height: "20%",
+    backgroundColor: "white",
+    borderRadius: 10,
   },
 });
