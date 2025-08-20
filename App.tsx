@@ -43,12 +43,14 @@ export default function App() {
   }, []);
 
   const resetGame = () => {
+    setIsProcessing(true); // Lock board during reset
     setGameState("playing");
     setTimeLeft(60);
     setScore(0);
     setCombo(1);
     setMaxCombo(1);
-    resetBoard();
+    const newBoard = resetBoard();
+    clearInitialMatches(newBoard);
   };
 
   useEffect(() => {
@@ -80,7 +82,7 @@ export default function App() {
     }
   }, []);
 
-  const resetBoard = () => {
+  const resetBoard = (): Block[][] => {
     const newBoard: Block[][] = [];
     for (let r = 0; r < numRows; r++) {
       const row: Block[] = [];
@@ -96,7 +98,29 @@ export default function App() {
       }
       newBoard.push(row);
     }
-    setBoard(newBoard);
+    return newBoard;
+  };
+
+  const clearInitialMatches = (initialBoard: Block[][]) => {
+    const processInitial = (boardToProcess: Block[][]) => {
+      const matchesToProcess = findMatches(boardToProcess);
+
+      if (matchesToProcess.size > 0) {
+        setScore((prev) => prev + matchesToProcess.size * 10);
+        const boardWithClearing = markBlocksForClearing(boardToProcess, matchesToProcess, null);
+        setBoard(boardWithClearing);
+
+        setTimeout(() => {
+          const boardAfterDrop = handleDropAndRefill(boardWithClearing);
+          processInitial(boardAfterDrop);
+        }, duration * 2); // Allow pop and drop animations
+      } else {
+        setBoard(boardToProcess);
+        setIsProcessing(false); // Game is ready to be played
+      }
+    };
+
+    processInitial(initialBoard);
   };
 
   const swap = (r1: number, c1: number, r2: number, c2: number) => {
