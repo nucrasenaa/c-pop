@@ -2,13 +2,47 @@ import React, { useState, useEffect } from "react";
 import { View, StyleSheet, Dimensions, Pressable } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
+import { Svg, Polygon, Circle } from "react-native-svg";
 
-const numRows = 8;
-const numCols = 8;
-const colors = ["red", "blue", "green", "yellow", "purple"];
+// --- Hex Grid Constants ---
+const numCols = 7; // The number of columns in the hexagonal grid
+const numRows = 8; // The number of rows in the hexagonal grid
+const hexSize = Math.floor(Dimensions.get("window").width / (numCols * 1.8)); // Adjust size for screen fit
+const colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FED766", "#9B59B6"];
 const duration = 200;
 
-const cellSize = Math.floor(Dimensions.get("window").width / numCols);
+// --- Hex Grid Utility Functions (Axial Coordinates) ---
+
+// Function to get points for a pointy-topped hexagon polygon
+function getHexagonPoints(size: number) {
+  const points = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 180) * (60 * i);
+    const x = size * Math.cos(angle);
+    const y = size * Math.sin(angle);
+    points.push(`${x},${y}`);
+  }
+  return points.join(" ");
+}
+
+const hexWidth = Math.sqrt(3) * hexSize;
+const hexHeight = 2 * hexSize;
+
+// Function to convert axial coordinates to pixel coordinates for pointy-topped hexes
+function axialToPixel(q: number, r: number) {
+  const x = hexSize * (Math.sqrt(3) * q + (Math.sqrt(3) / 2) * r);
+  const y = hexSize * ((3 / 2) * r);
+  return { x, y };
+}
+
+// Function to calculate axial distance between two hexes
+function axialDistance(q1: number, r1: number, q2: number, r2: number) {
+  return (Math.abs(q1 - q2) + Math.abs(q1 + r1 - q2 - r2) + Math.abs(r1 - r2)) / 2;
+}
+
+function areNeighbors(q1: number, r1: number, q2: number, r2: number) {
+  return axialDistance(q1, r1, q2, r2) === 1;
+}
 
 function randomColor() {
   return colors[Math.floor(Math.random() * colors.length)];
@@ -17,139 +51,250 @@ function randomColor() {
 type Block = {
   id: string;
   color: string;
-  row: number;
-  col: number;
+  q: number; // Axial coordinate q
+  r: number; // Axial coordinate r
 };
 
 export default function App() {
-  const [board, setBoard] = useState<Block[][]>([]);
-  const [selected, setSelected] = useState<[number, number] | null>(null);
+  const [board, setBoard] = useState<Block[]>([]);
+  const [selected, setSelected] = useState<{ q: number; r: number } | null>(null);
 
   useEffect(() => {
     resetBoard();
   }, []);
 
   const resetBoard = () => {
-    const newBoard: Block[][] = [];
+    const newBoard: Block[] = [];
+    // Create a rectangular map of hexagons
     for (let r = 0; r < numRows; r++) {
-      const row: Block[] = [];
-      for (let c = 0; c < numCols; c++) {
-        row.push({ color: randomColor(), id: `${r}-${c}-${Math.random()}`, row: r, col: c });
+      const rOffset = Math.floor(r / 2.0);
+      for (let q = -rOffset; q < numCols - rOffset; q++) {
+         newBoard.push({
+          color: randomColor(),
+          id: `${q}-${r}-${Math.random()}`,
+          q,
+          r,
+        });
       }
-      newBoard.push(row);
     }
     setBoard(newBoard);
   };
 
-  const swap = (r1: number, c1: number, r2: number, c2: number) => {
-    const newBoard = board.map((row) => [...row]);
-    const tmp = newBoard[r1][c1];
-    newBoard[r1][c1] = { ...newBoard[r2][c2], row: r1, col: c1 };
-    newBoard[r2][c2] = { ...tmp, row: r2, col: c2 };
+  // --- Game Logic (To be implemented for Hex Grid) ---
+
+  const swapBlocks = (brd: Block[], q1: number, r1: number, q2: number, r2: number) => {
+    const block1Index = brd.findIndex(b => b.q === q1 && b.r === r1);
+    const block2Index = brd.findIndex(b => b.q === q2 && b.r === r2);
+    if (block1Index === -1 || block2Index === -1) return brd;
+
+    const newBoard = [...brd];
+    const temp = newBoard[block1Index];
+    newBoard[block1Index] = { ...newBoard[block2Index], q: q1, r: r1 };
+    newBoard[block2Index] = { ...temp, q: q2, r: r2 };
     return newBoard;
   };
 
-  const findMatches = (brd: Block[][]) => {
-    const matches: [number, number][] = [];
-    // Horizontal
-    for (let r = 0; r < numRows; r++) {
-      let count = 1;
-      for (let c = 1; c < numCols; c++) {
-        if (brd[r][c].color === brd[r][c - 1].color) count++;
-        else {
-          if (count >= 3) for (let k = 0; k < count; k++) matches.push([r, c - 1 - k]);
-          count = 1;
+  const getBlock = (brd: Block[], q: number, r: number) => brd.find(b => b.q === q && b.r === r);
+
+  const findMatches = (brd: Block[]) => {
+    const matches = new Set<string>();
+
+    // Directions for checking lines in a hex grid (3 axes)
+    const directions = [
+      { q: 1, r: 0 }, // Horizontal
+      { q: 0, r: 1 }, // Diagonal
+      { q: 1, r: -1 }, // Other Diagonal
+    ];
+
+    for (const block of brd) {
+      if (!block.color) continue;
+
+      for (const dir of directions) {
+        const line = [block];
+        // Check in positive direction
+        for (let i = 1; i < Math.max(numCols, numRows); i++) {
+          const next = getBlock(brd, block.q + dir.q * i, block.r + dir.r * i);
+          if (next && next.color === block.color) line.push(next);
+          else break;
+        }
+
+        if (line.length >= 3) {
+          line.forEach(b => matches.add(b.id));
         }
       }
-      if (count >= 3) for (let k = 0; k < count; k++) matches.push([r, numCols - 1 - k]);
     }
-    // Vertical
-    for (let c = 0; c < numCols; c++) {
-      let count = 1;
-      for (let r = 1; r < numRows; r++) {
-        if (brd[r][c].color === brd[r - 1][c].color) count++;
-        else {
-          if (count >= 3) for (let k = 0; k < count; k++) matches.push([r - 1 - k, c]);
-          count = 1;
-        }
-      }
-      if (count >= 3) for (let k = 0; k < count; k++) matches.push([numRows - 1 - k, c]);
-    }
-    return matches;
+    return brd.filter(b => matches.has(b.id));
   };
 
-  const clearAndDrop = (brd: Block[][], matches: [number, number][]) => {
-    const newBoard = brd.map((row) => [...row]);
-    matches.forEach(([r, c]) => {
-      newBoard[r][c] = { ...newBoard[r][c], color: "", id: `empty-${Math.random()}` };
-    });
-    for (let c = 0; c < numCols; c++) {
-      let empty = 0;
-      for (let r = numRows - 1; r >= 0; r--) {
-        if (newBoard[r][c].color === "") empty++;
-        else if (empty > 0) {
-          newBoard[r + empty][c] = { ...newBoard[r][c], row: r + empty };
-          newBoard[r][c] = { ...newBoard[r][c], color: "", id: `empty-${Math.random()}` };
-        }
-      }
-      for (let r = 0; r < empty; r++) {
-        newBoard[r][c] = { color: randomColor(), id: `new-${Math.random()}`, row: r, col: c };
+  const clearAndDrop = (brd: Block[], matches: Block[]) => {
+    let newBoard = [...brd];
+    const matchIds = new Set(matches.map(b => b.id));
+
+    // 1. Remove matched blocks
+    newBoard = newBoard.filter(b => !matchIds.has(b.id));
+
+    // 2. Gravity: Blocks fall down in their columns (constant q)
+    const columns = new Map<number, Block[]>();
+    for (const block of newBoard) {
+      if (!columns.has(block.q)) columns.set(block.q, []);
+      columns.get(block.q)!.push(block);
+    }
+
+    let droppedBoard: Block[] = [];
+    for (const [q, blocks] of columns.entries()) {
+      // For each column, sort blocks by r to know their vertical order
+      blocks.sort((a, b) => a.r - b.r);
+
+      const qOffset = Math.floor(q / 2.0);
+      const minR = -qOffset;
+
+      // Re-assign 'r' values from the top of the column
+      for(let i=0; i < blocks.length; i++) {
+        const newR = minR + i;
+        droppedBoard.push({ ...blocks[i], r: newR });
       }
     }
-    return newBoard;
+
+    // 3. Refill board
+    let finalBoard = [...droppedBoard];
+    for (let q = 0; q < numCols; q++) {
+        const qOffset = Math.floor(q / 2.0);
+        const minR = -qOffset;
+        const colBlocks = finalBoard.filter(b => b.q === q);
+        const colSize = colBlocks.length;
+
+        const fillCount = numRows - colSize;
+        for (let i=0; i<fillCount; i++) {
+            finalBoard.push({
+                q,
+                r: minR - 1 - i, // Place new blocks above the visible area
+                color: randomColor(),
+                id: `new-${q}-${i}-${Math.random()}`
+            });
+        }
+    }
+
+    // Animate the new blocks into place
+    const finalBoardWithCorrectR = finalBoard.map(block => {
+        if(block.id.startsWith("new-")) {
+            const qOffset = Math.floor(block.q / 2.0);
+            const colBlocks = finalBoard.filter(b => b.q === block.q && !b.id.startsWith("new-"));
+            const highestR = colBlocks.reduce((maxR, b) => Math.min(maxR, b.r), -qOffset);
+            const newR = highestR - 1;
+            const existingRsInCol = colBlocks.map(b => b.r);
+            let finalR = newR;
+            while(existingRsInCol.includes(finalR)) {
+                finalR--;
+            }
+            // This is getting complicated. Let's simplify the drop logic.
+            // For now, let's just re-calculate all 'r' values after a drop.
+        }
+        return block;
+    })
+
+
+    // Let's try a simpler gravity model.
+    const boardAfterClear = brd.filter(b => !matchIds.has(b.id));
+    const finalBoardSimple: Block[] = [];
+
+    for (let q = 0; q < numCols; q++) {
+        const qOffset = Math.floor(q / 2.0);
+        const startR = -qOffset;
+        const endR = numRows - qOffset -1;
+
+        const column = boardAfterClear.filter(b => b.q === q).sort((a,b) => b.r - a.r); // from bottom to top
+        let currentR = endR;
+
+        for(const block of column) {
+            finalBoardSimple.push({ ...block, r: currentR });
+            currentR--;
+        }
+
+        // Refill
+        const fillCount = numRows - column.length;
+        for(let i=0; i<fillCount; i++) {
+            finalBoardSimple.push({
+                q,
+                r: currentR,
+                color: randomColor(),
+                id: `new-${q}-${i}-${Math.random()}`
+            })
+            currentR--;
+        }
+    }
+
+    return finalBoardSimple;
   };
 
-  const handlePress = (r: number, c: number) => {
+  const handlePress = (q: number, r: number) => {
     if (!selected) {
-      setSelected([r, c]);
+      setSelected({ q, r });
       return;
     }
-    const [r1, c1] = selected;
-    const [r2, c2] = [r, c];
+
+    const { q: q1, r: r1 } = selected;
+    const { q: q2, r: r2 } = { q, r };
     setSelected(null);
 
-    if (Math.abs(r1 - r2) + Math.abs(c1 - c2) !== 1) return;
-
-    // Swap + animate
-    let newBoard = swap(r1, c1, r2, c2);
-    setBoard(newBoard);
-
-    const matches = findMatches(newBoard);
-    if (matches.length === 0) {
-      // Swap-back with delay to allow animation
-      setTimeout(() => {
-        const backBoard = swap(r1, c1, r2, c2);
-        setBoard(backBoard);
-      }, duration);
+    if (!areNeighbors(q1, r1, q2, r2)) {
       return;
     }
 
-    // Clear & drop while matches exist
-    let clearedBoard = newBoard;
-    let nextMatches = matches;
-    while (nextMatches.length > 0) {
-      clearedBoard = clearAndDrop(clearedBoard, nextMatches);
-      nextMatches = findMatches(clearedBoard);
+    // Optimistically swap
+    const swappedBoard = swapBlocks(board, q1, r1, q2, r2);
+    setBoard(swappedBoard);
+
+    // Check for matches
+    const matches = findMatches(swappedBoard);
+    if (matches.length === 0) {
+      // If no matches, swap back after a delay
+      setTimeout(() => {
+        setBoard(board); // Revert to original board state
+      }, duration * 2);
+      return;
     }
-    setBoard(clearedBoard);
+
+    // Cascading matches
+    let boardAfterSwap = swappedBoard;
+    let matchesFound = findMatches(boardAfterSwap);
+
+    const handleMatches = () => {
+      if (matchesFound.length > 0) {
+        const clearedBoard = clearAndDrop(boardAfterSwap, matchesFound);
+
+        setTimeout(() => {
+          setBoard(clearedBoard);
+          boardAfterSwap = clearedBoard;
+          matchesFound = findMatches(clearedBoard);
+          handleMatches(); // Check for new matches
+        }, duration * 2);
+
+      }
+    };
+
+    handleMatches();
   };
+
+  // Calculate board dimensions for centering
+  const boardWidth = (numCols + 0.5) * hexWidth;
+  const boardHeight = (numRows + 0.5) * hexHeight * 0.75;
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       <View
         style={{
-          width: cellSize * numCols,
-          height: cellSize * numRows,
+          width: boardWidth,
+          height: boardHeight,
           position: "relative",
         }}
       >
-        {board.flat().map((block) => (
+        {board.map((block) => (
           <BlockView
             key={block.id}
             block={block}
-            selected={selected && selected[0] === block.row && selected[1] === block.col}
-            onPress={() => handlePress(block.row, block.col)}
+            selected={selected && selected.q === block.q && selected.r === block.r}
+            onPress={() => handlePress(block.q, block.r)}
           />
         ))}
       </View>
@@ -158,42 +303,56 @@ export default function App() {
 }
 
 function BlockView({ block, selected, onPress }: { block: Block; selected: boolean; onPress: () => void }) {
-  const x = useSharedValue(block.col * cellSize);
-  const y = useSharedValue(block.row * cellSize);
+  // Add a small offset to center the grid visually
+  const pixel = axialToPixel(block.q, block.r);
+  const x = pixel.x + hexWidth / 2;
+  const y = pixel.y + hexHeight / 4;
+
+  const animatedX = useSharedValue(x);
+  const animatedY = useSharedValue(y);
 
   useEffect(() => {
-    x.value = withTiming(block.col * cellSize, { duration });
-    y.value = withTiming(block.row * cellSize, { duration });
-  }, [block.row, block.col]);
+    animatedX.value = withTiming(x, { duration });
+    animatedY.value = withTiming(y, { duration });
+  }, [block.q, block.r, x, y]);
 
   const styleAnim = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.value }, { translateY: y.value }],
+    transform: [{ translateX: animatedX.value }, { translateY: animatedY.value }],
   }));
+
+  const hexagonPoints = getHexagonPoints(hexSize);
 
   return (
     <Animated.View
       style={[
         {
-          width: cellSize,
-          height: cellSize,
+          width: hexWidth,
+          height: hexHeight,
           position: "absolute",
-          top: 0,
-          left: 0,
           zIndex: selected ? 1 : 0,
         },
         styleAnim,
       ]}
     >
-      <Pressable
-        onPress={onPress}
-        style={{
-          flex: 1,
-          backgroundColor: block.color || "black",
-          borderRadius: 6,
-          borderWidth: selected ? 3 : 0,
-          borderColor: "white",
-        }}
-      />
+      <Pressable onPress={onPress} style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Svg height={hexHeight} width={hexWidth} >
+            <Polygon
+              points={hexagonPoints}
+              fill={block.color}
+              stroke="rgba(0,0,0,0.2)"
+              strokeWidth="2"
+              transform={`translate(${hexWidth/2}, ${hexHeight/2})`}
+            />
+             <Circle
+              cx={hexWidth / 2}
+              cy={hexHeight / 2}
+              r={hexSize * 0.6}
+              fill={block.color}
+              stroke={selected ? "white" : "rgba(255,255,255,0.5)"}
+              strokeWidth={selected ? 3 : 2}
+            />
+        </Svg>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -201,7 +360,7 @@ function BlockView({ block, selected, onPress }: { block: Block; selected: boole
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#111",
+    backgroundColor: "#87CEEB", // A cheerful sky blue
     justifyContent: "center",
     alignItems: "center",
   },
