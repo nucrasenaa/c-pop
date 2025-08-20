@@ -23,6 +23,7 @@ type Block = {
   row: number;
   col: number;
   specialType: "line_clear" | "color_bomb" | null;
+  status: "idle" | "clearing";
 };
 
 export default function App() {
@@ -30,6 +31,7 @@ export default function App() {
   const [selected, setSelected] = useState<[number, number] | null>(null);
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(1);
+  const [lineFlashes, setLineFlashes] = useState<{ key: number; type: "row" | "col"; index: number }[]>([]);
 
   useEffect(() => {
     resetBoard();
@@ -40,7 +42,14 @@ export default function App() {
     for (let r = 0; r < numRows; r++) {
       const row: Block[] = [];
       for (let c = 0; c < numCols; c++) {
-        row.push({ color: randomColor(), id: getNextId(), row: r, col: c, specialType: null });
+        row.push({
+          color: randomColor(),
+          id: getNextId(),
+          row: r,
+          col: c,
+          specialType: null,
+          status: "idle",
+        });
       }
       newBoard.push(row);
     }
@@ -96,31 +105,46 @@ export default function App() {
     return matches;
   };
 
-  const clearAndDrop = (
+  const markBlocksForClearing = (
     brd: Block[][],
-    matches: Set<string>,
+    blocksToClear: Set<string>,
     specialBlockToCreate: { pos: string; type: "line_clear" | "color_bomb" } | null
   ) => {
     const newBoard = brd.map((row) => row.map((block) => ({ ...block })));
-
     if (specialBlockToCreate) {
       const [r, c] = specialBlockToCreate.pos.split(",").map(Number);
       newBoard[r][c].specialType = specialBlockToCreate.type;
-      // Make the color bomb visually distinct by making it colorless
       if (specialBlockToCreate.type === "color_bomb") {
         newBoard[r][c].color = "white";
       }
     }
 
-    matches.forEach((match) => {
-      if (specialBlockToCreate && specialBlockToCreate.pos === match) {
-        return; // Don't clear the block that is becoming special
+    blocksToClear.forEach((pos) => {
+      if (specialBlockToCreate && specialBlockToCreate.pos === pos) {
+        return;
       }
-      const [r, c] = match.split(",").map(Number);
-      newBoard[r][c].color = ""; // Mark as empty
+      const [r, c] = pos.split(",").map(Number);
+      newBoard[r][c].status = "clearing";
     });
 
-    // Gravity: drop blocks down
+    return newBoard;
+  };
+
+  const handleDropAndRefill = (brd: Block[][]) => {
+    const newBoard = brd.map((row) => row.map((block) => ({ ...block })));
+
+    // 1. Turn clearing blocks into empty blocks
+    for (let r = 0; r < numRows; r++) {
+      for (let c = 0; c < numCols; c++) {
+        if (newBoard[r][c].status === "clearing") {
+          newBoard[r][c].color = "";
+          newBoard[r][c].status = "idle";
+          newBoard[r][c].specialType = null;
+        }
+      }
+    }
+
+    // 2. Gravity and refill
     for (let c = 0; c < numCols; c++) {
       let writeRow = numRows - 1;
       for (let readRow = numRows - 1; readRow >= 0; readRow--) {
@@ -131,7 +155,6 @@ export default function App() {
           writeRow--;
         }
       }
-      // Fill empty spaces at the top
       for (let r = writeRow; r >= 0; r--) {
         newBoard[r][c] = {
           id: getNextId(),
@@ -139,6 +162,7 @@ export default function App() {
           row: r,
           col: c,
           specialType: null,
+          status: "idle",
         };
       }
     }
@@ -182,17 +206,23 @@ export default function App() {
 
       const processBomb = (boardToProcess: Block[][], matchesToProcess: Set<string>) => {
         setScore((prev) => prev + matchesToProcess.size * 10 * currentCombo);
-        const nextBoard = clearAndDrop(boardToProcess, matchesToProcess, null);
-        setBoard(nextBoard);
-        const nextMatches = findMatches(nextBoard);
-        if (nextMatches.size > 0) {
-          currentCombo++;
-          setCombo(currentCombo);
-          setTimeout(() => processBomb(nextBoard, nextMatches), duration * 2);
-        }
+        const boardWithClearing = markBlocksForClearing(boardToProcess, matchesToProcess, null);
+        setBoard(boardWithClearing);
+
+        setTimeout(() => {
+          const boardAfterDrop = handleDropAndRefill(boardWithClearing);
+          const nextMatches = findMatches(boardAfterDrop);
+          if (nextMatches.size > 0) {
+            currentCombo++;
+            setCombo(currentCombo);
+            processBomb(boardAfterDrop, nextMatches);
+          } else {
+            setBoard(boardAfterDrop);
+          }
+        }, duration);
       };
 
-      setTimeout(() => processBomb(board, blocksToClear), duration);
+      processBomb(board, blocksToClear);
       return;
     }
     // --- End of Color Bomb Logic ---
@@ -210,47 +240,64 @@ export default function App() {
 
     let currentCombo = 1;
     setCombo(currentCombo);
-
-    let specialBlockInfo: { pos: string; type: "line_clear" | "color_bomb" } | null = null;
-    if (initialMatches.size === 4) {
-      specialBlockInfo = { pos: `${r2},${c2}`, type: "line_clear" };
-    } else if (initialMatches.size >= 5) {
-      specialBlockInfo = { pos: `${r2},${c2}`, type: "color_bomb" };
-    }
+    let flashKey = 0;
 
     const processMatches = (
       boardToProcess: Block[][],
       matchesToProcess: Set<string>,
       isInitial: boolean
     ) => {
-      // --- Line Clear Activation Logic ---
+      let specialBlockInfo: { pos: string; type: "line_clear" | "color_bomb" } | null = null;
+      if (isInitial) {
+        if (matchesToProcess.size === 4) {
+          specialBlockInfo = { pos: `${r2},${c2}`, type: "line_clear" };
+        } else if (matchesToProcess.size >= 5) {
+          specialBlockInfo = { pos: `${r2},${c2}`, type: "color_bomb" };
+        }
+      }
+
       let blocksToClear = new Set(matchesToProcess);
+      const flashesToCreate: { key: number; type: "row" | "col"; index: number }[] = [];
+
       matchesToProcess.forEach((matchPos) => {
         const [mr, mc] = matchPos.split(",").map(Number);
         const block = boardToProcess[mr][mc];
         if (block.specialType === "line_clear") {
+          flashesToCreate.push({ key: flashKey++, type: "row", index: mr });
+          flashesToCreate.push({ key: flashKey++, type: "col", index: mc });
           for (let i = 0; i < numCols; i++) blocksToClear.add(`${mr},${i}`);
           for (let i = 0; i < numRows; i++) blocksToClear.add(`${i},${mc}`);
         }
       });
-      // --- End of Line Clear Logic ---
 
-      setScore((prev) => prev + blocksToClear.size * 10 * currentCombo);
+      const continueAfterPop = (boardAfterDrop: Block[][]) => {
+        const nextMatches = findMatches(boardAfterDrop);
+        if (nextMatches.size > 0) {
+          currentCombo++;
+          setCombo(currentCombo);
+          processMatches(boardAfterDrop, nextMatches, false);
+        } else {
+          setBoard(boardAfterDrop);
+        }
+      };
 
-      const special = isInitial ? specialBlockInfo : null;
-      const nextBoard = clearAndDrop(boardToProcess, blocksToClear, special);
-      setBoard(nextBoard);
+      const continueAfterFlash = () => {
+        setLineFlashes([]);
+        setScore((prev) => prev + blocksToClear.size * 10 * currentCombo);
+        const boardWithClearing = markBlocksForClearing(boardToProcess, blocksToClear, specialBlockInfo);
+        setBoard(boardWithClearing);
+        setTimeout(() => continueAfterPop(handleDropAndRefill(boardWithClearing)), duration);
+      };
 
-      const nextMatches = findMatches(nextBoard);
-
-      if (nextMatches.size > 0) {
-        currentCombo++;
-        setCombo(currentCombo);
-        setTimeout(() => processMatches(nextBoard, nextMatches, false), duration * 2);
+      if (flashesToCreate.length > 0) {
+        setLineFlashes(flashesToCreate);
+        setTimeout(continueAfterFlash, 150);
+      } else {
+        continueAfterFlash();
       }
     };
 
-    setTimeout(() => processMatches(swappedBoard, initialMatches, true), duration);
+    processMatches(swappedBoard, initialMatches, true);
   };
 
   return (
@@ -274,6 +321,9 @@ export default function App() {
             onPress={() => handlePress(block.row, block.col)}
           />
         ))}
+        {lineFlashes.map((flash) => (
+          <Flash key={flash.key} type={flash.type} index={flash.index} />
+        ))}
       </View>
     </View>
   );
@@ -282,14 +332,26 @@ export default function App() {
 function BlockView({ block, selected, onPress }: { block: Block; selected: boolean; onPress: () => void }) {
   const x = useSharedValue(block.col * cellSize);
   const y = useSharedValue(block.row * cellSize);
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(1);
 
   useEffect(() => {
     x.value = withTiming(block.col * cellSize, { duration });
     y.value = withTiming(block.row * cellSize, { duration });
   }, [block.row, block.col]);
 
+  useEffect(() => {
+    if (block.status === "clearing") {
+      scale.value = withTiming(0, { duration });
+      opacity.value = withTiming(0, { duration });
+    }
+    // Note: We don't need to reset scale/opacity to 1 because
+    // the component will be unmounted and a new one created for new blocks.
+  }, [block.status]);
+
   const styleAnim = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.value }, { translateY: y.value }],
+    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: scale.value }],
+    opacity: opacity.value,
   }));
 
   const isLineClear = block.specialType === "line_clear";
@@ -324,6 +386,33 @@ function BlockView({ block, selected, onPress }: { block: Block; selected: boole
     </Animated.View>
   );
 }
+
+const Flash = ({ type, index }: { type: "row" | "col"; index: number }) => {
+  const scale = useSharedValue(0);
+  const opacity = useSharedValue(0.7);
+  const flashDuration = 150;
+
+  useEffect(() => {
+    scale.value = withTiming(1, { duration: flashDuration });
+    opacity.value = withDelay(flashDuration * 0.5, withTiming(0, { duration: flashDuration * 0.5 }));
+  }, []);
+
+  const style = useAnimatedStyle(() => {
+    const positionStyle =
+      type === "row"
+        ? { top: index * cellSize, left: 0, right: 0, height: cellSize }
+        : { left: index * cellSize, top: 0, bottom: 0, width: cellSize };
+    return {
+      position: "absolute",
+      backgroundColor: "white",
+      opacity: opacity.value,
+      ...positionStyle,
+      transform: [type === "row" ? { scaleX: scale.value } : { scaleY: scale.value }],
+    };
+  });
+
+  return <Animated.View style={style} />;
+};
 
 const styles = StyleSheet.create({
   container: {
