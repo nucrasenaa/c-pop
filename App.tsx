@@ -145,20 +145,20 @@ export default function App() {
   const clearAndDrop = (
     brd: Block[][],
     matches: [number, number][],
-    specialToCreate?: { pos: [number, number]; type: SpecialType }
+    specialsToCreate?: Array<{ pos: [number, number]; type: SpecialType }>
   ) => {
     const newBoard = brd.map((row) => [...row]);
-    const specialPosStr = specialToCreate ? `${specialToCreate.pos[0]},${specialToCreate.pos[1]}` : "";
+    const specialPositions = new Set(specialsToCreate?.map((s) => `${s.pos[0]},${s.pos[1]}`) || []);
 
     matches.forEach(([r, c]) => {
-      if (`${r},${c}` === specialPosStr) return;
+      if (specialPositions.has(`${r},${c}`)) return;
       newBoard[r][c] = { ...newBoard[r][c], emoji: "", special: "none", id: `empty-${Math.random()}` };
     });
 
-    if (specialToCreate) {
-      const [r, c] = specialToCreate.pos;
-      newBoard[r][c] = { ...newBoard[r][c], special: specialToCreate.type };
-    }
+    specialsToCreate?.forEach((special) => {
+      const [r, c] = special.pos;
+      newBoard[r][c] = { ...newBoard[r][c], special: special.type };
+    });
 
     for (let c = 0; c < numCols; c++) {
       let empty = 0;
@@ -255,21 +255,25 @@ export default function App() {
 
       if (coordsToClearSet.size === 0) break;
 
-      let specialToCreate: { pos: [number, number]; type: SpecialType } | undefined = undefined;
-      if (isFirstLoop) {
-        const matchCreatedBySwap5 = currentMatches.find(
-          (m) => m.length >= 5 && m.coords.some(([r, c]) => r === r2 && c === c2)
-        );
-        const matchCreatedBySwap4 = currentMatches.find(
-          (m) => m.length === 4 && m.coords.some(([r, c]) => r === r2 && c === c2)
-        );
-
-        if (matchCreatedBySwap5) {
-          specialToCreate = { pos: [r2, c2], type: "rainbow" };
-        } else if (matchCreatedBySwap4) {
-          specialToCreate = { pos: [r2, c2], type: "bomb" };
+      let specialsToCreate: Array<{ pos: [number, number]; type: SpecialType }> = [];
+      currentMatches.forEach((match) => {
+        let creationPos: [number, number] | undefined = undefined;
+        // If it's the first loop, the creation position is where the player swapped to.
+        if (isFirstLoop && match.coords.some(([r, c]) => r === r2 && c === c2)) {
+          creationPos = [r2, c2];
+        } else if (!isFirstLoop && match.coords.length > 0) {
+          // For cascades, just pick a spot from the match. The first one is deterministic.
+          creationPos = match.coords[0];
         }
-      }
+
+        if (creationPos) {
+          if (match.length >= 5) {
+            specialsToCreate.push({ pos: creationPos, type: "rainbow" });
+          } else if (match.length === 4) {
+            specialsToCreate.push({ pos: creationPos, type: "bomb" });
+          }
+        }
+      });
 
       const coordsToClear: [number, number][] = Array.from(coordsToClearSet).map((s) => {
         const [r, c] = s.split(",").map(Number);
@@ -277,7 +281,7 @@ export default function App() {
       });
 
       totalScoreToAdd += coordsToClear.length * 10;
-      boardAfterMove = clearAndDrop(boardAfterMove, coordsToClear, specialToCreate);
+      boardAfterMove = clearAndDrop(boardAfterMove, coordsToClear, specialsToCreate);
 
       // Clear the set for the next iteration (cascades)
       coordsToClearSet.clear();
