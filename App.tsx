@@ -8,17 +8,33 @@ const numCols = 8;
 const emojis = ["🐻", "🐨", "🐰", "🐼", "🐷"];
 const duration = 200;
 
+const emojiColors: { [key: string]: string } = {
+  "🐻": "#8B4513", // SaddleBrown
+  "🐨": "#B0C4DE", // LightSteelBlue
+  "🐰": "#FFC0CB", // Pink
+  "🐼": "#90EE90", // LightGreen
+  "🐷": "#FFB6C1", // LightPink
+};
+
 const cellSize = Math.floor(Dimensions.get("window").width / numCols);
 
 function randomEmoji() {
   return emojis[Math.floor(Math.random() * emojis.length)];
 }
 
+type SpecialType = "none" | "bomb" | "rainbow";
+
 type Block = {
   id: string;
   emoji: string;
   row: number;
   col: number;
+  special: SpecialType;
+};
+
+type Match = {
+  coords: [number, number][];
+  length: number;
 };
 
 export default function App() {
@@ -46,7 +62,7 @@ export default function App() {
     for (let r = 0; r < numRows; r++) {
       const row: Block[] = [];
       for (let c = 0; c < numCols; c++) {
-        row.push({ emoji: randomEmoji(), id: `${r}-${c}-${Math.random()}`, row: r, col: c });
+        row.push({ emoji: randomEmoji(), id: `${r}-${c}-${Math.random()}`, row: r, col: c, special: "none" });
       }
       newBoard.push(row);
     }
@@ -68,51 +84,95 @@ export default function App() {
     return newBoard;
   };
 
-  const findMatches = (brd: Block[][]) => {
-    const matches: [number, number][] = [];
-    // Horizontal
+  const findMatches = (brd: Block[][]): Match[] => {
+    const allMatches: Match[] = [];
+    const visited = Array(numRows)
+      .fill(null)
+      .map(() => Array(numCols).fill(false));
+
+    // Horizontal matches
     for (let r = 0; r < numRows; r++) {
-      let count = 1;
-      for (let c = 1; c < numCols; c++) {
-        if (brd[r][c].emoji === brd[r][c - 1].emoji) count++;
-        else {
-          if (count >= 3) for (let k = 0; k < count; k++) matches.push([r, c - 1 - k]);
-          count = 1;
+      for (let c = 0; c < numCols; c++) {
+        if (visited[r][c] || !brd[r][c].emoji) continue;
+        const currentEmoji = brd[r][c].emoji;
+        let matchLength = 1;
+        while (c + matchLength < numCols && brd[r][c + matchLength].emoji === currentEmoji) {
+          matchLength++;
+        }
+        if (matchLength >= 3) {
+          const coords: [number, number][] = [];
+          for (let i = 0; i < matchLength; i++) {
+            coords.push([r, c + i]);
+            visited[r][c + i] = true;
+          }
+          allMatches.push({ coords, length: matchLength });
+          c += matchLength - 1;
         }
       }
-      if (count >= 3) for (let k = 0; k < count; k++) matches.push([r, numCols - 1 - k]);
     }
-    // Vertical
+
+    // Vertical matches
     for (let c = 0; c < numCols; c++) {
-      let count = 1;
-      for (let r = 1; r < numRows; r++) {
-        if (brd[r][c].emoji === brd[r - 1][c].emoji) count++;
-        else {
-          if (count >= 3) for (let k = 0; k < count; k++) matches.push([r - 1 - k, c]);
-          count = 1;
+      for (let r = 0; r < numRows; r++) {
+        if (visited[r][c] || !brd[r][c].emoji) continue;
+        const currentEmoji = brd[r][c].emoji;
+        let matchLength = 1;
+        while (r + matchLength < numRows && brd[r + matchLength][c].emoji === currentEmoji) {
+          matchLength++;
+        }
+        if (matchLength >= 3) {
+          const coords: [number, number][] = [];
+          for (let i = 0; i < matchLength; i++) {
+            // Avoid double-counting by checking visited again
+            if (!visited[r + i][c]) {
+              coords.push([r + i, c]);
+            }
+          }
+          // Only add if it forms a new match (for T-shapes)
+          if (coords.length >= 3) {
+             allMatches.push({ coords, length: coords.length });
+          }
+           // Mark all as visited regardless
+          for (let i = 0; i < matchLength; i++) {
+            visited[r + i][c] = true;
+          }
+          r += matchLength - 1;
         }
       }
-      if (count >= 3) for (let k = 0; k < count; k++) matches.push([numRows - 1 - k, c]);
     }
-    return matches;
+
+    return allMatches;
   };
 
-  const clearAndDrop = (brd: Block[][], matches: [number, number][]) => {
+  const clearAndDrop = (
+    brd: Block[][],
+    matches: [number, number][],
+    specialToCreate?: { pos: [number, number]; type: SpecialType }
+  ) => {
     const newBoard = brd.map((row) => [...row]);
+    const specialPosStr = specialToCreate ? `${specialToCreate.pos[0]},${specialToCreate.pos[1]}` : "";
+
     matches.forEach(([r, c]) => {
-      newBoard[r][c] = { ...newBoard[r][c], emoji: "", id: `empty-${Math.random()}` };
+      if (`${r},${c}` === specialPosStr) return;
+      newBoard[r][c] = { ...newBoard[r][c], emoji: "", special: "none", id: `empty-${Math.random()}` };
     });
+
+    if (specialToCreate) {
+      const [r, c] = specialToCreate.pos;
+      newBoard[r][c] = { ...newBoard[r][c], special: specialToCreate.type };
+    }
+
     for (let c = 0; c < numCols; c++) {
       let empty = 0;
       for (let r = numRows - 1; r >= 0; r--) {
         if (newBoard[r][c].emoji === "") empty++;
         else if (empty > 0) {
           newBoard[r + empty][c] = { ...newBoard[r][c], row: r + empty };
-          newBoard[r][c] = { ...newBoard[r][c], emoji: "", id: `empty-${Math.random()}` };
+          newBoard[r][c] = { ...newBoard[r][c], emoji: "", special: "none", id: `empty-${Math.random()}` };
         }
       }
       for (let r = 0; r < empty; r++) {
-        newBoard[r][c] = { emoji: randomEmoji(), id: `new-${Math.random()}`, row: r, col: c };
+        newBoard[r][c] = { emoji: randomEmoji(), id: `new-${Math.random()}`, row: r, col: c, special: "none" };
       }
     }
     return newBoard;
@@ -144,17 +204,86 @@ export default function App() {
       return;
     }
 
-    // Clear & drop while matches exist
-    let totalMatches = 0;
-    let clearedBoard = newBoard;
-    let nextMatches = matches;
-    while (nextMatches.length > 0) {
-      totalMatches += nextMatches.length;
-      clearedBoard = clearAndDrop(clearedBoard, nextMatches);
-      nextMatches = findMatches(clearedBoard);
+    // --- Game Logic Loop ---
+    const block1 = newBoard[r1][c1];
+    const block2 = newBoard[r2][c2];
+    const specialActivationCoords = new Set<string>();
+
+    const checkAndTriggerSpecials = (r: number, c: number, otherBlock: Block) => {
+      const block = newBoard[r][c];
+      if (block.special === "bomb") {
+        for (let i = -1; i <= 1; i++) {
+          for (let j = -1; j <= 1; j++) {
+            const aR = r + i;
+            const aC = c + j;
+            if (aR >= 0 && aR < numRows && aC >= 0 && aC < numCols) {
+              specialActivationCoords.add(`${aR},${aC}`);
+            }
+          }
+        }
+      } else if (block.special === "rainbow") {
+        const targetEmoji = otherBlock.emoji;
+        if (targetEmoji) {
+           specialActivationCoords.add(`${r},${c}`); // Clear the rainbow block itself
+          for (let ro = 0; ro < numRows; ro++) {
+            for (let co = 0; co < numCols; co++) {
+              if (newBoard[ro][co].emoji === targetEmoji) {
+                specialActivationCoords.add(`${ro},${co}`);
+              }
+            }
+          }
+        }
+      }
+    };
+    checkAndTriggerSpecials(r1, c1, block2);
+    checkAndTriggerSpecials(r2, c2, block1);
+
+
+    let boardAfterMove = newBoard;
+    let totalScoreToAdd = 0;
+    let firstMatches = matches;
+    let keepProcessing = true;
+    let isFirstLoop = true;
+
+    while (keepProcessing) {
+      let specialToCreate: { pos: [number, number]; type: SpecialType } | undefined = undefined;
+
+      if (isFirstLoop) {
+        const match5 = firstMatches.find((m) => m.length >= 5);
+        const match4 = firstMatches.find((m) => m.length === 4);
+
+        if (match5 && match5.coords.some(([r, c]) => r === r2 && c === c2)) {
+          specialToCreate = { pos: [r2, c2], type: "rainbow" };
+        } else if (match4 && match4.coords.some(([r, c]) => r === r2 && c === c2)) {
+          specialToCreate = { pos: [r2, c2], type: "bomb" };
+        }
+      }
+
+      const coordsToClearSet = new Set<string>();
+      specialActivationCoords.forEach((coord) => coordsToClearSet.add(coord));
+      firstMatches.forEach((match) => {
+        match.coords.forEach(([r, c]) => coordsToClearSet.add(`${r},${c}`));
+      });
+
+      if (coordsToClearSet.size === 0) {
+        keepProcessing = false;
+        continue;
+      }
+
+      const coordsToClear: [number, number][] = Array.from(coordsToClearSet).map((s) => {
+        const [r, c] = s.split(",").map(Number);
+        return [r, c];
+      });
+
+      totalScoreToAdd += coordsToClear.length * 10;
+      boardAfterMove = clearAndDrop(boardAfterMove, coordsToClear, specialToCreate);
+
+      firstMatches = findMatches(boardAfterMove);
+      isFirstLoop = false;
     }
-    setScore((s) => s + totalMatches * 10);
-    setBoard(clearedBoard);
+
+    setScore((s) => s + totalScoreToAdd);
+    setBoard(boardAfterMove);
   };
 
   return (
@@ -209,43 +338,68 @@ function BlockView({ block, selected, onPress }: { block: Block; selected: boole
     transform: [{ translateX: x.value }, { translateY: y.value }],
   }));
 
+  const backgroundColor = emojiColors[block.emoji] || "transparent";
+
+  const specialIndicator = () => {
+    if (block.special === "bomb") {
+      return <Text style={styles.specialIndicator}>💣</Text>;
+    }
+    if (block.special === "rainbow") {
+      return <Text style={styles.specialIndicator}>🌈</Text>;
+    }
+    return null;
+  };
+
   return (
     <Animated.View
       style={[
-        {
-          width: cellSize,
-          height: cellSize,
-          position: "absolute",
-          top: 0,
-          left: 0,
-          zIndex: selected ? 1 : 0,
-          justifyContent: "center",
-          alignItems: "center",
-        },
+        styles.block,
         styleAnim,
+        {
+          zIndex: selected ? 1 : 0,
+        },
       ]}
     >
       <Pressable
         onPress={onPress}
-        style={{
-          flex: 1,
-          width: "100%",
-          height: "100%",
-          justifyContent: "center",
-          alignItems: "center",
-          backgroundColor: block.emoji ? "rgba(255, 255, 255, 0.5)" : "transparent",
-          borderRadius: 6,
-          borderWidth: selected ? 3 : 0,
-          borderColor: "black",
-        }}
+        style={({ pressed }) => [
+          styles.pressable,
+          {
+            backgroundColor,
+            transform: [{ scale: pressed ? 0.9 : 1 }],
+            borderWidth: selected ? 3 : 0,
+            borderColor: "black",
+          },
+        ]}
       >
-        <Text style={{ fontSize: cellSize * 0.6 }}>{block.emoji}</Text>
+        <Text style={{ fontSize: cellSize * 0.5 }}>{block.emoji}</Text>
+        {specialIndicator()}
       </Pressable>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  specialIndicator: {
+    position: "absolute",
+    fontSize: cellSize * 0.3,
+    top: 0,
+    right: 0,
+  },
+  block: {
+    width: cellSize,
+    height: cellSize,
+    position: "absolute",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  pressable: {
+    width: cellSize * 0.8,
+    height: cellSize * 0.8,
+    borderRadius: cellSize * 0.4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   container: {
     flex: 1,
     backgroundColor: "#87CEEB", // Light Sky Blue
