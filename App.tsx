@@ -11,7 +11,7 @@ const duration = 200;
 const emojiColors: { [key: string]: string } = {
   "🐻": "#8B4513", // SaddleBrown
   "🐨": "#B0C4DE", // LightSteelBlue
-  "🐰": "#FFC0CB", // Pink
+  "🐰": "#E0E0E0", // Light Grey
   "🐼": "#90EE90", // LightGreen
   "🐷": "#FFB6C1", // LightPink
 };
@@ -192,19 +192,7 @@ export default function App() {
 
     // Swap + animate
     let newBoard = swap(r1, c1, r2, c2);
-    setBoard(newBoard);
 
-    const matches = findMatches(newBoard);
-    if (matches.length === 0) {
-      // Swap-back with delay to allow animation
-      setTimeout(() => {
-        const backBoard = swap(r1, c1, r2, c2);
-        setBoard(backBoard);
-      }, duration);
-      return;
-    }
-
-    // --- Game Logic Loop ---
     const block1 = newBoard[r1][c1];
     const block2 = newBoard[r2][c2];
     const specialActivationCoords = new Set<string>();
@@ -238,7 +226,21 @@ export default function App() {
     checkAndTriggerSpecials(r1, c1, block2);
     checkAndTriggerSpecials(r2, c2, block1);
 
+    const matches = findMatches(newBoard);
 
+    // A move is valid if it creates a match OR activates a special block.
+    if (matches.length === 0 && specialActivationCoords.size === 0) {
+      // Swap-back with delay to allow animation
+      setTimeout(() => {
+        const backBoard = swap(r1, c1, r2, c2);
+        setBoard(backBoard);
+      }, duration);
+      return;
+    }
+
+    setBoard(newBoard);
+
+    // --- Game Logic Loop ---
     let boardAfterMove = newBoard;
     let totalScoreToAdd = 0;
     let firstMatches = matches;
