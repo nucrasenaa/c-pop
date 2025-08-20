@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, Dimensions, Text, Modal, TouchableOpacity } from "react-native";
+import { View, StyleSheet, Dimensions, Text, TouchableOpacity, BackHandler } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS } from "react-native-reanimated";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
@@ -38,6 +38,17 @@ export default function App() {
 
   useEffect(() => {
     resetBoard();
+    const backAction = () => {
+      // Returning true disables the back button
+      return true;
+    };
+
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      backAction,
+    );
+
+    return () => backHandler.remove();
   }, []);
 
   useEffect(() => {
@@ -394,12 +405,7 @@ export default function App() {
       </View>
       <Text style={styles.timerText}>Time: {timeRemaining}</Text>
 
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={isGameOver}
-        onRequestClose={() => { /* Do nothing */ }}
-      >
+      {isGameOver && (
         <View style={styles.modalContainer}>
           <View style={styles.modalView}>
             <Text style={styles.modalTitle}>Game Over</Text>
@@ -410,7 +416,7 @@ export default function App() {
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      )}
 
     </GestureHandlerRootView>
   );
@@ -524,6 +530,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 100, // Ensure it's on top
   },
   modalView: {
     margin: 20,
