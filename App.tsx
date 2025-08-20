@@ -37,6 +37,10 @@ export default function App() {
   const [timeLeft, setTimeLeft] = useState(60);
   const [maxCombo, setMaxCombo] = useState(1);
 
+  useEffect(() => {
+    resetGame();
+  }, []);
+
   const resetGame = () => {
     setGameState("playing");
     setTimeLeft(60);
