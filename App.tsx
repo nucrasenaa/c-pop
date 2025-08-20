@@ -215,7 +215,7 @@ export default function App() {
 
       const newTimer = setTimeout(() => {
         setComboMultiplier(1);
-      }, 1000);
+      }, 2000);
       setComboResetTimer(newTimer);
       return newCombo;
     };
@@ -514,6 +514,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    width: '100%',
+    height: '100%',
   },
   modalView: {
     margin: 20,
