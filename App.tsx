@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { View, StyleSheet, Dimensions, Pressable, Text } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withDelay } from "react-native-reanimated";
+import { GestureHandlerRootView, GestureDetector, Gesture } from "react-native-gesture-handler";
 
 const numRows = 8;
 const numCols = 8;
@@ -28,7 +29,6 @@ type Block = {
 
 export default function App() {
   const [board, setBoard] = useState<Block[][]>([]);
-  const [selected, setSelected] = useState<[number, number] | null>(null);
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(1);
   const [lineFlashes, setLineFlashes] = useState<{ key: number; type: "row" | "col"; index: number }[]>([]);
@@ -169,18 +169,8 @@ export default function App() {
     return newBoard;
   };
 
-  const handlePress = (r: number, c: number) => {
-    if (selected === null) {
-      setSelected([r, c]);
-      return;
-    }
-
-    const [r1, c1] = selected;
-    const r2 = r,
-      c2 = c;
-    setSelected(null);
-
-    if (Math.abs(r1 - r2) + Math.abs(c1 - c2) !== 1) {
+  const handleSwap = (r1: number, c1: number, r2: number, c2: number) => {
+    if (r2 < 0 || r2 >= numRows || c2 < 0 || c2 >= numCols) {
       return;
     }
 
@@ -300,36 +290,60 @@ export default function App() {
     processMatches(swappedBoard, initialMatches, true);
   };
 
+  const panGesture = Gesture.Pan().onEnd((event) => {
+    const { translationX, translationY, absoluteX, absoluteY } = event;
+    // This needs adjustment, the event coords are absolute, not relative to the board
+    // For now, assuming the board is centered and taking up most of the screen
+    // A more robust solution would use measurements.
+    const startC = Math.floor((absoluteX - (Dimensions.get("window").width - numCols * cellSize) / 2) / cellSize);
+    const startR = Math.floor((absoluteY - (Dimensions.get("window").height - numRows * cellSize) / 2) / cellSize);
+
+
+    const absX = Math.abs(translationX);
+    const absY = Math.abs(translationY);
+
+    if (absX < 20 && absY < 20) return; // Not a swipe
+
+    let endR = startR;
+    let endC = startC;
+
+    if (absX > absY) {
+      endC = translationX > 0 ? startC + 1 : startC - 1;
+    } else {
+      endR = translationY > 0 ? startR + 1 : startR - 1;
+    }
+    handleSwap(startR, startC, endR, endC);
+  });
+
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
-      <Text style={styles.scoreText}>Score: {score}</Text>
-      {combo > 1 && <Text style={styles.comboText}>Combo x{combo}!</Text>}
-      <View
-        style={{
-          width: cellSize * numCols,
-          height: cellSize * numRows,
-          position: "relative",
-          marginTop: 20,
-        }}
-      >
-        {board.flat().map((block) => (
-          <BlockView
-            key={block.id}
-            block={block}
-            selected={selected && selected[0] === block.row && selected[1] === block.col}
-            onPress={() => handlePress(block.row, block.col)}
-          />
-        ))}
-        {lineFlashes.map((flash) => (
-          <Flash key={flash.key} type={flash.type} index={flash.index} />
-        ))}
-      </View>
-    </View>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureDetector gesture={panGesture}>
+        <View style={styles.container}>
+          <StatusBar style="light" />
+          <Text style={styles.scoreText}>Score: {score}</Text>
+          {combo > 1 && <Text style={styles.comboText}>Combo x{combo}!</Text>}
+          <View
+            style={{
+              width: cellSize * numCols,
+              height: cellSize * numRows,
+              position: "relative",
+              marginTop: 20,
+            }}
+          >
+            {board.flat().map((block) => (
+              <BlockView key={block.id} block={block} />
+            ))}
+            {lineFlashes.map((flash) => (
+              <Flash key={flash.key} type={flash.type} index={flash.index} />
+            ))}
+          </View>
+        </View>
+      </GestureDetector>
+    </GestureHandlerRootView>
   );
 }
 
-function BlockView({ block, selected, onPress }: { block: Block; selected: boolean; onPress: () => void }) {
+function BlockView({ block }: { block: Block }) {
   const x = useSharedValue(block.col * cellSize);
   const y = useSharedValue(block.row * cellSize);
   const scale = useSharedValue(1);
@@ -345,8 +359,6 @@ function BlockView({ block, selected, onPress }: { block: Block; selected: boole
       scale.value = withTiming(0, { duration });
       opacity.value = withTiming(0, { duration });
     }
-    // Note: We don't need to reset scale/opacity to 1 because
-    // the component will be unmounted and a new one created for new blocks.
   }, [block.status]);
 
   const styleAnim = useAnimatedStyle(() => ({
@@ -366,18 +378,17 @@ function BlockView({ block, selected, onPress }: { block: Block; selected: boole
           position: "absolute",
           top: 0,
           left: 0,
-          zIndex: selected ? 1 : 0,
+          zIndex: 0,
         },
         styleAnim,
       ]}
     >
       <Pressable
-        onPress={onPress}
         style={{
           flex: 1,
           backgroundColor: block.color || "black",
           borderRadius: 6,
-          borderWidth: selected ? 3 : isLineClear || isColorBomb ? 3 : 0,
+          borderWidth: isLineClear || isColorBomb ? 3 : 0,
           borderColor: isLineClear ? "white" : isColorBomb ? "#ffc107" : "white",
           transform: [{ rotate: isLineClear ? "45deg" : "0deg" }],
         }}
