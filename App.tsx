@@ -235,29 +235,32 @@ export default function App() {
 
     const processCascades = (initialBoard: Block[][]) => {
       let boardState = initialBoard;
-      const loop = () => {
+
+      const checkAndClear = () => {
         const matches = findMatches(boardState);
+
         if (matches.length === 0) {
-          setBoard(boardState);
-          setIsBoardLocked(false); // Unlock board
+          setIsBoardLocked(false); // Unlock board now that all cascades are done
           return;
         }
 
         const currentCombo = handleMatch(false);
-
         const blocksToClear = new Set<string>();
         matches.forEach(match => match.forEach(([lr, lc]) => blocksToClear.add(`${lr},${lc}`)));
 
         setScore(s => s + blocksToClear.size * 10 * currentCombo);
-        const nextBoard = clearAndDrop(boardState, blocksToClear);
 
+        const nextBoardState = clearAndDrop(boardState, blocksToClear);
+        setBoard(nextBoardState); // Update UI to start falling animation
+
+        // Wait for the spring animation to settle before checking for new matches
         setTimeout(() => {
-          boardState = nextBoard;
-          setBoard(nextBoard);
-          loop();
-        }, duration);
+          boardState = nextBoardState;
+          checkAndClear(); // Now check for matches on the settled board
+        }, 400); // Animation settlement delay
       };
-      loop();
+
+      checkAndClear();
     };
 
     const block1 = board[r1][c1];
