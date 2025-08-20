@@ -40,16 +40,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (timeRemaining === 0) {
+    if (isGameOver) return;
+
+    if (timeRemaining <= 0) {
       setIsGameOver(true);
       return;
     }
+
     const timer = setInterval(() => {
       setTimeRemaining((prevTime) => prevTime - 1);
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [timeRemaining, isGameOver]);
 
   const resetBoard = () => {
     const newBoard: Block[][] = [];
