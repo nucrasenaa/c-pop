@@ -28,6 +28,8 @@ export default function App() {
   const [board, setBoard] = useState<Block[][]>([]);
   const [score, setScore] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(60);
+  const [comboMultiplier, setComboMultiplier] = useState(1);
+  const [destroyingBlocks, setDestroyingBlocks] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     resetBoard();
@@ -226,24 +228,31 @@ export default function App() {
 
     if (specialBlock) {
       // Special Block Activation
-      const blocksToClear = new Set<string>();
-      blocksToClear.add(`${specialBlock.row},${specialBlock.col}`);
+      const blocksToClearCoords = new Set<string>();
+      blocksToClearCoords.add(`${specialBlock.row},${specialBlock.col}`);
 
       if (specialBlock.specialType === 'bomb') {
         const neighbors = getNeighbors(specialBlock.row, specialBlock.col);
-        neighbors.forEach(([nr, nc]) => blocksToClear.add(`${nr},${nc}`));
+        neighbors.forEach(([nr, nc]) => blocksToClearCoords.add(`${nr},${nc}`));
       } else if (specialBlock.specialType === 'color_bomb') {
         board.flat().forEach(b => {
           if (b.color === otherBlock.color) {
-            blocksToClear.add(`${b.row},${b.col}`);
+            blocksToClearCoords.add(`${b.row},${b.col}`);
           }
         });
       }
 
+      const blockIdsToDestroy = new Set(
+        board.flat().filter(b => blocksToClearCoords.has(`${b.row},${b.col}`)).map(b => b.id)
+      );
+      setDestroyingBlocks(blockIdsToDestroy);
+
       setBoard(swappedBoard); // show the swap first
       setTimeout(() => {
-        setScore(s => s + blocksToClear.size * 10);
-        const nextBoard = clearAndDrop(swappedBoard, blocksToClear);
+        setScore(s => s + blocksToClearCoords.size * 10 * comboMultiplier);
+        setComboMultiplier(prev => Math.min(prev + 1, 10));
+        const nextBoard = clearAndDrop(swappedBoard, blocksToClearCoords);
+        setDestroyingBlocks(new Set());
         processCascades(nextBoard);
       }, duration);
 
@@ -253,6 +262,7 @@ export default function App() {
       if (lines.length === 0) {
         setBoard(swappedBoard);
         setTimeout(() => setBoard(board), duration); // Swap back
+        setComboMultiplier(1); // Reset combo
         return;
       }
 
@@ -270,7 +280,8 @@ export default function App() {
 
       setBoard(swappedBoard); // show the swap
       setTimeout(() => {
-        setScore(s => s + blocksToClear.size * 10);
+        setScore(s => s + blocksToClear.size * 10 * comboMultiplier);
+        setComboMultiplier(prev => Math.min(prev + 1, 10));
         const nextBoard = clearAndDrop(swappedBoard, blocksToClear, specialBlockToCreate);
         processCascades(nextBoard);
       }, duration);
@@ -280,7 +291,10 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.container}>
       <StatusBar style="light" />
-      <Text style={styles.scoreText}>Score: {score}</Text>
+      <View style={styles.topHud}>
+        <Text style={styles.scoreText}>Score: {score}</Text>
+        {comboMultiplier > 1 && <Text style={styles.comboText}>x{comboMultiplier}</Text>}
+      </View>
       <View style={styles.boardContainer}>
         <View
           style={{
@@ -294,6 +308,7 @@ export default function App() {
               key={block.id}
               block={block}
               onSwipe={(direction) => handleSwipe(block.row, block.col, direction)}
+              isBeingDestroyed={destroyingBlocks.has(block.id)}
             />
           ))}
         </View>
@@ -303,17 +318,27 @@ export default function App() {
   );
 }
 
-function BlockView({ block, onSwipe }: { block: Block; onSwipe: (direction: 'up' | 'down' | 'left' | 'right') => void }) {
+function BlockView({ block, onSwipe, isBeingDestroyed }: { block: Block; onSwipe: (direction: 'up' | 'down' | 'left' | 'right') => void; isBeingDestroyed: boolean; }) {
   const x = useSharedValue(block.col * cellSize);
   const y = useSharedValue(block.row * cellSize);
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(1);
 
   useEffect(() => {
     x.value = withTiming(block.col * cellSize, { duration });
     y.value = withTiming(block.row * cellSize, { duration });
   }, [block.row, block.col]);
 
+  useEffect(() => {
+    if (isBeingDestroyed) {
+      scale.value = withTiming(0, { duration });
+      opacity.value = withTiming(0, { duration });
+    }
+  }, [isBeingDestroyed]);
+
   const styleAnim = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.value }, { translateY: y.value }],
+    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: scale.value }],
+    opacity: opacity.value,
   }));
 
   const panGesture = Gesture.Pan()
@@ -370,11 +395,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0E68C", // Khaki yellow
     borderRadius: 10,
   },
+  topHud: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
   scoreText: {
     fontSize: 24,
     fontWeight: 'bold',
     color: 'white',
-    marginBottom: 10,
+  },
+  comboText: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#FFD700', // Gold color for combo
+    marginLeft: 10,
   },
   timerText: {
     fontSize: 24,
