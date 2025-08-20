@@ -257,12 +257,16 @@ export default function App() {
 
       let specialToCreate: { pos: [number, number]; type: SpecialType } | undefined = undefined;
       if (isFirstLoop) {
-        const match5 = currentMatches.find((m) => m.length >= 5);
-        const match4 = currentMatches.find((m) => m.length === 4);
+        const matchCreatedBySwap5 = currentMatches.find(
+          (m) => m.length >= 5 && m.coords.some(([r, c]) => r === r2 && c === c2)
+        );
+        const matchCreatedBySwap4 = currentMatches.find(
+          (m) => m.length === 4 && m.coords.some(([r, c]) => r === r2 && c === c2)
+        );
 
-        if (match5 && match5.coords.some(([r, c]) => r === r2 && c === c2)) {
+        if (matchCreatedBySwap5) {
           specialToCreate = { pos: [r2, c2], type: "rainbow" };
-        } else if (match4 && match4.coords.some(([r, c]) => r === r2 && c === c2)) {
+        } else if (matchCreatedBySwap4) {
           specialToCreate = { pos: [r2, c2], type: "bomb" };
         }
       }
