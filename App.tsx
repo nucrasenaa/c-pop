@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, Dimensions, Text } from "react-native";
+import { View, StyleSheet, Dimensions, Text, Modal, TouchableOpacity } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from "react-native-reanimated";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
@@ -29,21 +29,22 @@ export default function App() {
   const [score, setScore] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(60);
   const [comboMultiplier, setComboMultiplier] = useState(1);
+  const [maxCombo, setMaxCombo] = useState(1);
   const [destroyingBlocks, setDestroyingBlocks] = useState<Set<string>>(new Set());
+  const [isGameOver, setIsGameOver] = useState(false);
+  const [announcement, setAnnouncement] = useState<{ text: string, key: number } | null>(null);
 
   useEffect(() => {
     resetBoard();
   }, []);
 
   useEffect(() => {
+    if (timeRemaining === 0) {
+      setIsGameOver(true);
+      return;
+    }
     const timer = setInterval(() => {
-      setTimeRemaining((prevTime) => {
-        if (prevTime === 0) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prevTime - 1;
-      });
+      setTimeRemaining((prevTime) => prevTime - 1);
     }, 1000);
 
     return () => clearInterval(timer);
@@ -165,6 +166,15 @@ export default function App() {
     return newBoard;
   };
 
+  const resetGame = () => {
+    setScore(0);
+    setTimeRemaining(60);
+    setComboMultiplier(1);
+    setMaxCombo(1);
+    resetBoard();
+    setIsGameOver(false);
+  };
+
   const getNeighbors = (r: number, c: number): [number, number][] => {
     const neighbors: [number, number][] = [];
     for (let dr = -1; dr <= 1; dr++) {
@@ -197,8 +207,10 @@ export default function App() {
     const swappedBoard = swap(board, r1, c1, r2, c2);
     let boardToProcess = swappedBoard;
 
-    const processCascades = (initialBoard: Block[][]) => {
+    const processCascades = (initialBoard: Block[][], initialCombo: number) => {
       let boardState = initialBoard;
+      let currentCombo = initialCombo;
+
       const loop = () => {
         const lines = findLines(boardState);
         if (lines.length === 0) {
@@ -206,10 +218,18 @@ export default function App() {
           return;
         }
 
+        // A match was found, this is a combo hit
+        currentCombo++;
+        setComboMultiplier(currentCombo);
+        setMaxCombo(prevMax => Math.max(prevMax, currentCombo));
+        if (currentCombo > 1 && currentCombo % 10 === 9) {
+          setAnnouncement({ text: `${currentCombo} Combo!`, key: Math.random() });
+        }
+
         const blocksToClear = new Set<string>();
         lines.forEach(line => line.forEach(([lr, lc]) => blocksToClear.add(`${lr},${lc}`)));
 
-        setScore(s => s + blocksToClear.size * 10);
+        setScore(s => s + blocksToClear.size * 10 * currentCombo);
         const nextBoard = clearAndDrop(boardState, blocksToClear);
 
         setTimeout(() => {
@@ -249,11 +269,17 @@ export default function App() {
 
       setBoard(swappedBoard); // show the swap first
       setTimeout(() => {
+        const newCombo = Math.min(comboMultiplier + 1, 99);
+        setComboMultiplier(newCombo);
+        setMaxCombo(prevMax => Math.max(prevMax, newCombo));
+        if (newCombo > 1 && newCombo % 10 === 9) {
+          setAnnouncement({ text: `${newCombo} Combo!`, key: Math.random() });
+        }
         setScore(s => s + blocksToClearCoords.size * 10 * comboMultiplier);
-        setComboMultiplier(prev => Math.min(prev + 1, 10));
+
         const nextBoard = clearAndDrop(swappedBoard, blocksToClearCoords);
         setDestroyingBlocks(new Set());
-        processCascades(nextBoard);
+        processCascades(nextBoard, newCombo);
       }, duration);
 
     } else {
@@ -280,10 +306,16 @@ export default function App() {
 
       setBoard(swappedBoard); // show the swap
       setTimeout(() => {
+        const newCombo = Math.min(comboMultiplier + 1, 99);
+        setComboMultiplier(newCombo);
+        setMaxCombo(prevMax => Math.max(prevMax, newCombo));
+        if (newCombo > 1 && newCombo % 10 === 9) {
+          setAnnouncement({ text: `${newCombo} Combo!`, key: Math.random() });
+        }
         setScore(s => s + blocksToClear.size * 10 * comboMultiplier);
-        setComboMultiplier(prev => Math.min(prev + 1, 10));
+
         const nextBoard = clearAndDrop(swappedBoard, blocksToClear, specialBlockToCreate);
-        processCascades(nextBoard);
+        processCascades(nextBoard, newCombo);
       }, duration);
     }
   };
@@ -296,6 +328,7 @@ export default function App() {
         {comboMultiplier > 1 && <Text style={styles.comboText}>x{comboMultiplier}</Text>}
       </View>
       <View style={styles.boardContainer}>
+        <FloatingText announcement={announcement} onAnimationComplete={() => setAnnouncement(null)} />
         <View
           style={{
             width: cellSize * numCols,
@@ -314,6 +347,25 @@ export default function App() {
         </View>
       </View>
       <Text style={styles.timerText}>Time: {timeRemaining}</Text>
+
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isGameOver}
+        onRequestClose={() => { /* Do nothing */ }}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalView}>
+            <Text style={styles.modalTitle}>Game Over</Text>
+            <Text style={styles.modalText}>Final Score: {score}</Text>
+            <Text style={styles.modalText}>Max Combo: x{maxCombo}</Text>
+            <TouchableOpacity style={styles.playAgainButton} onPress={resetGame}>
+              <Text style={styles.playAgainButtonText}>Play Again</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </GestureHandlerRootView>
   );
 }
@@ -416,5 +468,93 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: 'white',
     marginTop: 10,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalView: {
+    margin: 20,
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 35,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  modalText: {
+    fontSize: 20,
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  playAgainButton: {
+    backgroundColor: '#2196F3',
+    borderRadius: 20,
+    padding: 10,
+    elevation: 2,
+    marginTop: 10,
+  },
+  playAgainButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    fontSize: 18,
+    paddingHorizontal: 20,
+  },
+  announcementText: {
+    position: 'absolute',
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: 'yellow',
+    textShadowColor: 'black',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   }
 });
+
+function FloatingText({ announcement, onAnimationComplete }: { announcement: { text: string, key: number } | null, onAnimationComplete: () => void }) {
+  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(1);
+
+  useEffect(() => {
+    if (announcement) {
+      translateY.value = 0;
+      opacity.value = 1;
+      translateY.value = withTiming(-100, { duration: 1500 });
+      opacity.value = withTiming(0, { duration: 1500 }, (finished) => {
+        if (finished) {
+          runOnJS(onAnimationComplete)();
+        }
+      });
+    }
+  }, [announcement]);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: opacity.value,
+      transform: [{ translateY: translateY.value }],
+    };
+  });
+
+  if (!announcement) return null;
+
+  return (
+    <Animated.View style={[styles.announcementText, animatedStyle]}>
+      <Text style={styles.announcementText}>{announcement.text}</Text>
+    </Animated.View>
+  );
+}
