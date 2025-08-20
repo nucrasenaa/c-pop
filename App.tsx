@@ -51,21 +51,20 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (gameState !== "playing") {
-      return;
+    if (gameState === "playing") {
+      const interval = setInterval(() => {
+        setTimeLeft((prevTime) => prevTime - 1);
+      }, 1000);
+      return () => clearInterval(interval);
     }
-    const interval = setInterval(() => {
-      setTimeLeft((prevTime) => {
-        if (prevTime <= 1) {
-          clearInterval(interval);
-          setGameState("game_over");
-          return 0;
-        }
-        return prevTime - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
   }, [gameState]);
+
+  useEffect(() => {
+    if (timeLeft <= 0) {
+      setGameState("game_over");
+      setTimeLeft(0);
+    }
+  }, [timeLeft]);
 
   const resetBoard = () => {
     const newBoard: Block[][] = [];
