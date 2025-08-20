@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, StyleSheet, Dimensions, Text, Modal, TouchableOpacity } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from "react-native-reanimated";
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS } from "react-native-reanimated";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 
 const numRows = 8;
@@ -21,7 +21,7 @@ type Block = {
   color: string;
   row: number;
   col: number;
-  specialType?: 'bomb' | 'color_bomb';
+  specialType?: 'bomb' | 'color_bomb' | 'screen_clear';
 };
 
 export default function App() {
@@ -33,6 +33,7 @@ export default function App() {
   const [destroyingBlocks, setDestroyingBlocks] = useState<Set<string>>(new Set());
   const [isGameOver, setIsGameOver] = useState(false);
   const [announcement, setAnnouncement] = useState<{ text: string, key: number } | null>(null);
+  const [comboResetTimer, setComboResetTimer] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     resetBoard();
@@ -70,61 +71,52 @@ export default function App() {
     return newBoard;
   };
 
-  const findLines = (brd: Block[][]): [number, number][][] => {
-    const lines: [number, number][][] = [];
-    // Find horizontal lines
+  const findMatches = (brd: Block[][]): [number, number][][] => {
+    const matches: [number, number][][] = [];
+    const visited: boolean[][] = Array(numRows).fill(false).map(() => Array(numCols).fill(false));
+
     for (let r = 0; r < numRows; r++) {
-      let c = 0;
-      while (c < numCols) {
-        const color = brd[r][c]?.color;
-        if (!color) {
-          c++;
-          continue;
-        }
-        let matchLength = 1;
-        while (c + matchLength < numCols && brd[r][c + matchLength]?.color === color) {
-          matchLength++;
-        }
-        if (matchLength >= 3) {
-          const line: [number, number][] = [];
-          for (let i = 0; i < matchLength; i++) {
-            line.push([r, c + i]);
+      for (let c = 0; c < numCols; c++) {
+        if (visited[r][c] || !brd[r][c]?.color) continue;
+
+        const color = brd[r][c].color;
+        const currentGroup: [number, number][] = [];
+        const queue: [number, number][] = [[r, c]];
+        visited[r][c] = true;
+
+        while (queue.length > 0) {
+          const [currR, currC] = queue.shift()!;
+          currentGroup.push([currR, currC]);
+
+          const neighbors = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+          for (const [dr, dc] of neighbors) {
+            const nextR = currR + dr;
+            const nextC = currC + dc;
+
+            if (
+              nextR >= 0 && nextR < numRows &&
+              nextC >= 0 && nextC < numCols &&
+              !visited[nextR][nextC] &&
+              brd[nextR][nextC]?.color === color
+            ) {
+              visited[nextR][nextC] = true;
+              queue.push([nextR, nextC]);
+            }
           }
-          lines.push(line);
         }
-        c += matchLength;
+
+        if (currentGroup.length >= 3) {
+          matches.push(currentGroup);
+        }
       }
     }
-    // Find vertical lines
-    for (let c = 0; c < numCols; c++) {
-      let r = 0;
-      while (r < numRows) {
-        const color = brd[r][c]?.color;
-        if (!color) {
-          r++;
-          continue;
-        }
-        let matchLength = 1;
-        while (r + matchLength < numRows && brd[r + matchLength][c]?.color === color) {
-          matchLength++;
-        }
-        if (matchLength >= 3) {
-          const line: [number, number][] = [];
-          for (let i = 0; i < matchLength; i++) {
-            line.push([r + i, c]);
-          }
-          lines.push(line);
-        }
-        r += matchLength;
-      }
-    }
-    return lines;
+    return matches;
   };
 
   const clearAndDrop = (
     brd: Block[][],
     blocksToClear: Set<string>,
-    specialBlock?: { pos: [number, number]; type: 'bomb' | 'color_bomb' }
+    specialBlock?: { pos: [number, number]; type: 'bomb' | 'color_bomb' | 'screen_clear' }
   ) => {
     let newBoard = brd.map((row) => [...row]);
     let bombCreated = false;
@@ -207,27 +199,37 @@ export default function App() {
     const swappedBoard = swap(board, r1, c1, r2, c2);
     let boardToProcess = swappedBoard;
 
-    const processCascades = (initialBoard: Block[][], initialCombo: number) => {
-      let boardState = initialBoard;
-      let currentCombo = initialCombo;
+    const handleMatch = (isFirstMatch: boolean) => {
+      if (comboResetTimer) clearTimeout(comboResetTimer);
 
+      const newCombo = isFirstMatch ? Math.min(comboMultiplier + 1, 99) : comboMultiplier + 1;
+      setComboMultiplier(newCombo);
+      setMaxCombo(prevMax => Math.max(prevMax, newCombo));
+
+      if (newCombo > 1 && newCombo % 10 === 9) {
+        setAnnouncement({ text: `${newCombo} Combo!`, key: Math.random() });
+      }
+
+      const newTimer = setTimeout(() => {
+        setComboMultiplier(1);
+      }, 2000);
+      setComboResetTimer(newTimer);
+      return newCombo;
+    };
+
+    const processCascades = (initialBoard: Block[][]) => {
+      let boardState = initialBoard;
       const loop = () => {
-        const lines = findLines(boardState);
-        if (lines.length === 0) {
+        const matches = findMatches(boardState);
+        if (matches.length === 0) {
           setBoard(boardState);
           return;
         }
 
-        // A match was found, this is a combo hit
-        currentCombo++;
-        setComboMultiplier(currentCombo);
-        setMaxCombo(prevMax => Math.max(prevMax, currentCombo));
-        if (currentCombo > 1 && currentCombo % 10 === 9) {
-          setAnnouncement({ text: `${currentCombo} Combo!`, key: Math.random() });
-        }
+        const currentCombo = handleMatch(false);
 
         const blocksToClear = new Set<string>();
-        lines.forEach(line => line.forEach(([lr, lc]) => blocksToClear.add(`${lr},${lc}`)));
+        matches.forEach(match => match.forEach(([lr, lc]) => blocksToClear.add(`${lr},${lc}`)));
 
         setScore(s => s + blocksToClear.size * 10 * currentCombo);
         const nextBoard = clearAndDrop(boardState, blocksToClear);
@@ -260,6 +262,36 @@ export default function App() {
             blocksToClearCoords.add(`${b.row},${b.col}`);
           }
         });
+      } else if (specialBlock.specialType === 'screen_clear') {
+        const allBlockCoords = new Set<string>();
+        board.flat().forEach(b => {
+          if (b.color) allBlockCoords.add(`${b.row},${b.col}`);
+        });
+
+        const blocksByRow: string[][] = Array(numRows).fill(0).map(() => []);
+        board.flat().forEach(b => {
+          if(b.color) blocksByRow[b.row].push(b.id);
+        });
+
+        const waveDelay = 50;
+        for (let i = 0; i < blocksByRow.length; i++) {
+          setTimeout(() => {
+            setDestroyingBlocks(prev => new Set([...prev, ...blocksByRow[i]]));
+          }, i * waveDelay);
+        }
+
+        setBoard(swappedBoard); // show the swap first
+        setTimeout(() => {
+          const newCombo = Math.min(comboMultiplier + 1, 99);
+          setComboMultiplier(newCombo);
+          setMaxCombo(prevMax => Math.max(prevMax, newCombo));
+          setScore(s => s + allBlockCoords.size * 10 * comboMultiplier);
+
+          const nextBoard = clearAndDrop(swappedBoard, allBlockCoords);
+          setDestroyingBlocks(new Set());
+          processCascades(nextBoard);
+        }, (blocksByRow.length * waveDelay) + duration);
+        return; // Return early to prevent double processing
       }
 
       const blockIdsToDestroy = new Set(
@@ -269,53 +301,58 @@ export default function App() {
 
       setBoard(swappedBoard); // show the swap first
       setTimeout(() => {
-        const newCombo = Math.min(comboMultiplier + 1, 99);
-        setComboMultiplier(newCombo);
-        setMaxCombo(prevMax => Math.max(prevMax, newCombo));
-        if (newCombo > 1 && newCombo % 10 === 9) {
-          setAnnouncement({ text: `${newCombo} Combo!`, key: Math.random() });
-        }
-        setScore(s => s + blocksToClearCoords.size * 10 * comboMultiplier);
+        const currentCombo = handleMatch(true);
+        setScore(s => s + blocksToClearCoords.size * 10 * currentCombo);
 
         const nextBoard = clearAndDrop(swappedBoard, blocksToClearCoords);
         setDestroyingBlocks(new Set());
-        processCascades(nextBoard, newCombo);
+        processCascades(nextBoard);
       }, duration);
 
     } else {
       // Normal Match
-      const lines = findLines(swappedBoard);
-      if (lines.length === 0) {
+      const matches = findMatches(swappedBoard);
+      if (matches.length === 0) {
         setBoard(swappedBoard);
-        setTimeout(() => setBoard(board), duration); // Swap back
-        setComboMultiplier(1); // Reset combo
+        setTimeout(() => setBoard(board), duration); // Swap back. No combo reset here anymore.
         return;
       }
 
-      let specialBlockToCreate: { pos: [number, number]; type: 'bomb' | 'color_bomb' } | undefined;
+      let specialBlockToCreate: { pos: [number, number]; type: 'bomb' | 'color_bomb' | 'screen_clear' } | undefined;
       const blocksToClear = new Set<string>();
-      for (const line of lines) {
-        const wasPartOfSwap = line.some(([lr, lc]) => (lr === r1 && lc === c1) || (lr === r2 && lc === c2));
+      for (const match of matches) {
+        const wasPartOfSwap = match.some(([lr, lc]) => (lr === r1 && lc === c1) || (lr === r2 && lc === c2));
         if (wasPartOfSwap) {
-          const pos = line.find(([lr,lc]) => lr === r2 && lc === c2) ? [r2, c2] : [r1, c1];
-          if (line.length >= 5) specialBlockToCreate = { pos, type: 'color_bomb' };
-          else if (line.length === 4) specialBlockToCreate = { pos, type: 'bomb' };
+          const pos = match.find(([lr,lc]) => lr === r2 && lc === c2) ? [r2, c2] : [r1, c1];
+          if (match.length >= 5) {
+            // Check for T/L shape vs line
+            let minR = numRows, maxR = -1, minC = numCols, maxC = -1;
+            match.forEach(([r, c]) => {
+              minR = Math.min(minR, r);
+              maxR = Math.max(maxR, r);
+              minC = Math.min(minC, c);
+              maxC = Math.max(maxC, c);
+            });
+            const height = maxR - minR + 1;
+            const width = maxC - minC + 1;
+            if (height > 1 && width > 1) {
+              specialBlockToCreate = { pos, type: 'screen_clear' };
+            } else {
+              specialBlockToCreate = { pos, type: 'color_bomb' };
+            }
+          }
+          else if (match.length === 4) specialBlockToCreate = { pos, type: 'bomb' };
         }
-        line.forEach(([lr, lc]) => blocksToClear.add(`${lr},${lc}`));
+        match.forEach(([lr, lc]) => blocksToClear.add(`${lr},${lc}`));
       }
 
       setBoard(swappedBoard); // show the swap
       setTimeout(() => {
-        const newCombo = Math.min(comboMultiplier + 1, 99);
-        setComboMultiplier(newCombo);
-        setMaxCombo(prevMax => Math.max(prevMax, newCombo));
-        if (newCombo > 1 && newCombo % 10 === 9) {
-          setAnnouncement({ text: `${newCombo} Combo!`, key: Math.random() });
-        }
-        setScore(s => s + blocksToClear.size * 10 * comboMultiplier);
+        const currentCombo = handleMatch(true);
+        setScore(s => s + blocksToClear.size * 10 * currentCombo);
 
         const nextBoard = clearAndDrop(swappedBoard, blocksToClear, specialBlockToCreate);
-        processCascades(nextBoard, newCombo);
+        processCascades(nextBoard);
       }, duration);
     }
   };
@@ -378,7 +415,7 @@ function BlockView({ block, onSwipe, isBeingDestroyed }: { block: Block; onSwipe
 
   useEffect(() => {
     x.value = withTiming(block.col * cellSize, { duration });
-    y.value = withTiming(block.row * cellSize, { duration });
+    y.value = withSpring(block.row * cellSize);
   }, [block.row, block.col]);
 
   useEffect(() => {
@@ -424,7 +461,7 @@ function BlockView({ block, onSwipe, isBeingDestroyed }: { block: Block; onSwipe
         <View
           style={{
             flex: 1,
-            backgroundColor: block.specialType === 'color_bomb' ? 'black' : (block.color || "black"),
+            backgroundColor: block.specialType === 'screen_clear' ? '#9400D3' : (block.specialType === 'color_bomb' ? 'black' : (block.color || "black")),
             borderRadius: cellSize / 2,
             borderWidth: block.specialType === 'bomb' ? 4 : 1,
             borderColor: block.specialType ? 'white' : "rgba(0,0,0,0.2)",
