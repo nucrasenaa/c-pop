@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, StyleSheet, Dimensions, Pressable, Text } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, withDelay } from "react-native-reanimated";
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withDelay, runOnJS } from "react-native-reanimated";
 import { GestureHandlerRootView, GestureDetector, Gesture } from "react-native-gesture-handler";
 
 const numRows = 8;
@@ -32,7 +32,7 @@ export default function App() {
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(1);
   const [lineFlashes, setLineFlashes] = useState<{ key: number; type: "row" | "col"; index: number }[]>([]);
-  const [swipeStart, setSwipeStart] = useState<{ x: number; y: number } | null>(null);
+  const swipeStart = useSharedValue<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     resetBoard();
@@ -293,20 +293,20 @@ export default function App() {
 
   const panGesture = Gesture.Pan()
     .onStart((event) => {
-      setSwipeStart({ x: event.x, y: event.y });
+      swipeStart.value = { x: event.x, y: event.y };
     })
     .onEnd((event) => {
-      if (!swipeStart) return;
+      if (!swipeStart.value) return;
 
       const { translationX, translationY } = event;
-      const startC = Math.floor(swipeStart.x / cellSize);
-      const startR = Math.floor(swipeStart.y / cellSize);
+      const startC = Math.floor(swipeStart.value.x / cellSize);
+      const startR = Math.floor(swipeStart.value.y / cellSize);
 
       const absX = Math.abs(translationX);
       const absY = Math.abs(translationY);
 
       if (absX < 20 && absY < 20) {
-        setSwipeStart(null);
+        swipeStart.value = null;
         return; // Not a swipe
       }
 
@@ -318,8 +318,8 @@ export default function App() {
       } else {
         endR = translationY > 0 ? startR + 1 : startR - 1;
       }
-      handleSwap(startR, startC, endR, endC);
-      setSwipeStart(null); // Reset
+      runOnJS(handleSwap)(startR, startC, endR, endC);
+      swipeStart.value = null; // Reset
     });
 
   return (
