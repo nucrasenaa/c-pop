@@ -170,7 +170,7 @@ export default function App() {
   };
 
   const handleSwap = (r1: number, c1: number, r2: number, c2: number) => {
-    if (r2 < 0 || r2 >= numRows || c2 < 0 || c2 >= numCols) {
+    if (r1 < 0 || r1 >= numRows || c1 < 0 || c1 >= numCols || r2 < 0 || r2 >= numRows || c2 < 0 || c2 >= numCols) {
       return;
     }
 
