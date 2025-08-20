@@ -258,10 +258,15 @@ export default function App() {
       let specialsToCreate: Array<{ pos: [number, number]; type: SpecialType }> = [];
       currentMatches.forEach((match) => {
         let creationPos: [number, number] | undefined = undefined;
-        // If it's the first loop, the creation position is where the player swapped to.
-        if (isFirstLoop && match.coords.some(([r, c]) => r === r2 && c === c2)) {
-          creationPos = [r2, c2];
-        } else if (!isFirstLoop && match.coords.length > 0) {
+
+        if (isFirstLoop) {
+          // For the initial swap, check if either swapped position is in the match.
+          if (match.coords.some(([r, c]) => r === r1 && c === c1)) {
+            creationPos = [r1, c1];
+          } else if (match.coords.some(([r, c]) => r === r2 && c === c2)) {
+            creationPos = [r2, c2];
+          }
+        } else if (match.coords.length > 0) {
           // For cascades, just pick a spot from the match. The first one is deterministic.
           creationPos = match.coords[0];
         }
