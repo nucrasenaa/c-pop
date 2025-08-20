@@ -10,6 +10,9 @@ const duration = 200;
 
 const cellSize = Math.floor(Dimensions.get("window").width / numCols);
 
+let nextId = 0;
+const getNextId = () => (nextId++).toString();
+
 function randomColor() {
   return colors[Math.floor(Math.random() * colors.length)];
 }
@@ -34,7 +37,7 @@ export default function App() {
     for (let r = 0; r < numRows; r++) {
       const row: Block[] = [];
       for (let c = 0; c < numCols; c++) {
-        row.push({ color: randomColor(), id: `${r}-${c}-${Math.random()}`, row: r, col: c });
+        row.push({ color: randomColor(), id: getNextId(), row: r, col: c });
       }
       newBoard.push(row);
     }
@@ -42,96 +45,123 @@ export default function App() {
   };
 
   const swap = (r1: number, c1: number, r2: number, c2: number) => {
-    const newBoard = board.map((row) => [...row]);
+    const newBoard = board.map((row) => row.map((block) => ({ ...block })));
     const tmp = newBoard[r1][c1];
     newBoard[r1][c1] = { ...newBoard[r2][c2], row: r1, col: c1 };
     newBoard[r2][c2] = { ...tmp, row: r2, col: c2 };
     return newBoard;
   };
 
-  const findMatches = (brd: Block[][]) => {
-    const matches: [number, number][] = [];
-    // Horizontal
+  const findMatches = (brd: Block[][]): Set<string> => {
+    const matches = new Set<string>();
+    // Find horizontal matches of 3 or more
     for (let r = 0; r < numRows; r++) {
-      let count = 1;
-      for (let c = 1; c < numCols; c++) {
-        if (brd[r][c].color === brd[r][c - 1].color) count++;
-        else {
-          if (count >= 3) for (let k = 0; k < count; k++) matches.push([r, c - 1 - k]);
-          count = 1;
+      for (let c = 0; c < numCols - 2; ) {
+        const color = brd[r][c].color;
+        if (color && brd[r][c + 1].color === color && brd[r][c + 2].color === color) {
+          let k = c + 3;
+          while (k < numCols && brd[r][k].color === color) {
+            k++;
+          }
+          for (let i = 0; i < k - c; i++) {
+            matches.add(`${r},${c + i}`);
+          }
+          c = k;
+        } else {
+          c++;
         }
       }
-      if (count >= 3) for (let k = 0; k < count; k++) matches.push([r, numCols - 1 - k]);
     }
-    // Vertical
+    // Find vertical matches of 3 or more
     for (let c = 0; c < numCols; c++) {
-      let count = 1;
-      for (let r = 1; r < numRows; r++) {
-        if (brd[r][c].color === brd[r - 1][c].color) count++;
-        else {
-          if (count >= 3) for (let k = 0; k < count; k++) matches.push([r - 1 - k, c]);
-          count = 1;
+      for (let r = 0; r < numRows - 2; ) {
+        const color = brd[r][c].color;
+        if (color && brd[r + 1][c].color === color && brd[r + 2][c].color === color) {
+          let k = r + 3;
+          while (k < numRows && brd[k][c].color === color) {
+            k++;
+          }
+          for (let i = 0; i < k - r; i++) {
+            matches.add(`${r + i},${c}`);
+          }
+          r = k;
+        } else {
+          r++;
         }
       }
-      if (count >= 3) for (let k = 0; k < count; k++) matches.push([numRows - 1 - k, c]);
     }
     return matches;
   };
 
-  const clearAndDrop = (brd: Block[][], matches: [number, number][]) => {
-    const newBoard = brd.map((row) => [...row]);
-    matches.forEach(([r, c]) => {
-      newBoard[r][c] = { ...newBoard[r][c], color: "", id: `empty-${Math.random()}` };
+  const clearAndDrop = (brd: Block[][], matches: Set<string>) => {
+    const newBoard = brd.map((row) => row.map((block) => ({ ...block })));
+
+    matches.forEach((match) => {
+      const [r, c] = match.split(",").map(Number);
+      newBoard[r][c].color = ""; // Mark as empty
     });
+
+    // Gravity: drop blocks down
     for (let c = 0; c < numCols; c++) {
-      let empty = 0;
-      for (let r = numRows - 1; r >= 0; r--) {
-        if (newBoard[r][c].color === "") empty++;
-        else if (empty > 0) {
-          newBoard[r + empty][c] = { ...newBoard[r][c], row: r + empty };
-          newBoard[r][c] = { ...newBoard[r][c], color: "", id: `empty-${Math.random()}` };
+      let writeRow = numRows - 1;
+      for (let readRow = numRows - 1; readRow >= 0; readRow--) {
+        if (newBoard[readRow][c].color !== "") {
+          if (writeRow !== readRow) {
+            newBoard[writeRow][c] = { ...newBoard[readRow][c], row: writeRow };
+          }
+          writeRow--;
         }
       }
-      for (let r = 0; r < empty; r++) {
-        newBoard[r][c] = { color: randomColor(), id: `new-${Math.random()}`, row: r, col: c };
+      // Fill empty spaces at the top
+      for (let r = writeRow; r >= 0; r--) {
+        newBoard[r][c] = {
+          id: getNextId(),
+          color: randomColor(),
+          row: r,
+          col: c,
+        };
       }
     }
     return newBoard;
   };
 
   const handlePress = (r: number, c: number) => {
-    if (!selected) {
+    if (selected === null) {
       setSelected([r, c]);
       return;
     }
+
     const [r1, c1] = selected;
-    const [r2, c2] = [r, c];
     setSelected(null);
 
-    if (Math.abs(r1 - r2) + Math.abs(c1 - c2) !== 1) return;
-
-    // Swap + animate
-    let newBoard = swap(r1, c1, r2, c2);
-    setBoard(newBoard);
-
-    const matches = findMatches(newBoard);
-    if (matches.length === 0) {
-      // Swap-back with delay to allow animation
-      setTimeout(() => {
-        const backBoard = swap(r1, c1, r2, c2);
-        setBoard(backBoard);
-      }, duration);
+    // Check for adjacent selection
+    if (Math.abs(r1 - r) + Math.abs(c1 - c) !== 1) {
       return;
     }
 
-    // Clear & drop while matches exist
-    let clearedBoard = newBoard;
-    let nextMatches = matches;
-    while (nextMatches.length > 0) {
-      clearedBoard = clearAndDrop(clearedBoard, nextMatches);
-      nextMatches = findMatches(clearedBoard);
+    const swappedBoard = swap(r1, c1, r, c);
+    const initialMatches = findMatches(swappedBoard);
+
+    if (initialMatches.size === 0) {
+      // No match, animate swap and swap back
+      setBoard(swappedBoard);
+      setTimeout(() => setBoard(board), duration);
+      return;
     }
-    setBoard(clearedBoard);
+
+    // Matches found, start clearing and dropping
+    const processMatches = (currentBoard: Block[][]) => {
+      const matches = findMatches(currentBoard);
+      if (matches.size > 0) {
+        const nextBoard = clearAndDrop(currentBoard, matches);
+        setBoard(nextBoard);
+        // Use timeout to allow animation and create a cascading effect
+        setTimeout(() => processMatches(nextBoard), duration * 2);
+      }
+    };
+
+    setBoard(swappedBoard);
+    setTimeout(() => processMatches(swappedBoard), duration);
   };
 
   return (
