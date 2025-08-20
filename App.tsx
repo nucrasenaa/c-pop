@@ -86,58 +86,56 @@ export default function App() {
 
   const findMatches = (brd: Block[][]): Match[] => {
     const allMatches: Match[] = [];
-    const visited = Array(numRows)
-      .fill(null)
-      .map(() => Array(numCols).fill(false));
 
     // Horizontal matches
     for (let r = 0; r < numRows; r++) {
-      for (let c = 0; c < numCols; c++) {
-        if (visited[r][c] || !brd[r][c].emoji) continue;
-        const currentEmoji = brd[r][c].emoji;
-        let matchLength = 1;
-        while (c + matchLength < numCols && brd[r][c + matchLength].emoji === currentEmoji) {
+      let matchLength = 1;
+      for (let c = 1; c < numCols; c++) {
+        if (brd[r][c].emoji && brd[r][c].emoji === brd[r][c - 1].emoji) {
           matchLength++;
-        }
-        if (matchLength >= 3) {
-          const coords: [number, number][] = [];
-          for (let i = 0; i < matchLength; i++) {
-            coords.push([r, c + i]);
-            visited[r][c + i] = true;
+        } else {
+          if (matchLength >= 3) {
+            const coords: [number, number][] = [];
+            for (let i = 0; i < matchLength; i++) {
+              coords.push([r, c - 1 - i]);
+            }
+            allMatches.push({ coords, length: matchLength });
           }
-          allMatches.push({ coords, length: matchLength });
-          c += matchLength - 1;
+          matchLength = 1;
         }
+      }
+      if (matchLength >= 3) {
+        const coords: [number, number][] = [];
+        for (let i = 0; i < matchLength; i++) {
+          coords.push([r, numCols - 1 - i]);
+        }
+        allMatches.push({ coords, length: matchLength });
       }
     }
 
     // Vertical matches
     for (let c = 0; c < numCols; c++) {
-      for (let r = 0; r < numRows; r++) {
-        if (visited[r][c] || !brd[r][c].emoji) continue;
-        const currentEmoji = brd[r][c].emoji;
-        let matchLength = 1;
-        while (r + matchLength < numRows && brd[r + matchLength][c].emoji === currentEmoji) {
+      let matchLength = 1;
+      for (let r = 1; r < numRows; r++) {
+        if (brd[r][c].emoji && brd[r][c].emoji === brd[r - 1][c].emoji) {
           matchLength++;
-        }
-        if (matchLength >= 3) {
-          const coords: [number, number][] = [];
-          for (let i = 0; i < matchLength; i++) {
-            // Avoid double-counting by checking visited again
-            if (!visited[r + i][c]) {
-              coords.push([r + i, c]);
+        } else {
+          if (matchLength >= 3) {
+            const coords: [number, number][] = [];
+            for (let i = 0; i < matchLength; i++) {
+              coords.push([r - 1 - i, c]);
             }
+            allMatches.push({ coords, length: matchLength });
           }
-          // Only add if it forms a new match (for T-shapes)
-          if (coords.length >= 3) {
-             allMatches.push({ coords, length: coords.length });
-          }
-           // Mark all as visited regardless
-          for (let i = 0; i < matchLength; i++) {
-            visited[r + i][c] = true;
-          }
-          r += matchLength - 1;
+          matchLength = 1;
         }
+      }
+      if (matchLength >= 3) {
+        const coords: [number, number][] = [];
+        for (let i = 0; i < matchLength; i++) {
+          coords.push([numRows - 1 - i, c]);
+        }
+        allMatches.push({ coords, length: matchLength });
       }
     }
 
@@ -243,33 +241,30 @@ export default function App() {
     // --- Game Logic Loop ---
     let boardAfterMove = newBoard;
     let totalScoreToAdd = 0;
-    let firstMatches = matches;
-    let keepProcessing = true;
+    let currentMatches = matches;
     let isFirstLoop = true;
 
-    while (keepProcessing) {
-      let specialToCreate: { pos: [number, number]; type: SpecialType } | undefined = undefined;
+    const coordsToClearSet = new Set<string>();
+    specialActivationCoords.forEach((coord) => coordsToClearSet.add(coord));
 
+    while (currentMatches.length > 0 || (isFirstLoop && specialActivationCoords.size > 0)) {
+      // Add natural matches to the clear set
+      currentMatches.forEach((match) => {
+        match.coords.forEach(([r, c]) => coordsToClearSet.add(`${r},${c}`));
+      });
+
+      if (coordsToClearSet.size === 0) break;
+
+      let specialToCreate: { pos: [number, number]; type: SpecialType } | undefined = undefined;
       if (isFirstLoop) {
-        const match5 = firstMatches.find((m) => m.length >= 5);
-        const match4 = firstMatches.find((m) => m.length === 4);
+        const match5 = currentMatches.find((m) => m.length >= 5);
+        const match4 = currentMatches.find((m) => m.length === 4);
 
         if (match5 && match5.coords.some(([r, c]) => r === r2 && c === c2)) {
           specialToCreate = { pos: [r2, c2], type: "rainbow" };
         } else if (match4 && match4.coords.some(([r, c]) => r === r2 && c === c2)) {
           specialToCreate = { pos: [r2, c2], type: "bomb" };
         }
-      }
-
-      const coordsToClearSet = new Set<string>();
-      specialActivationCoords.forEach((coord) => coordsToClearSet.add(coord));
-      firstMatches.forEach((match) => {
-        match.coords.forEach(([r, c]) => coordsToClearSet.add(`${r},${c}`));
-      });
-
-      if (coordsToClearSet.size === 0) {
-        keepProcessing = false;
-        continue;
       }
 
       const coordsToClear: [number, number][] = Array.from(coordsToClearSet).map((s) => {
@@ -280,7 +275,10 @@ export default function App() {
       totalScoreToAdd += coordsToClear.length * 10;
       boardAfterMove = clearAndDrop(boardAfterMove, coordsToClear, specialToCreate);
 
-      firstMatches = findMatches(boardAfterMove);
+      // Clear the set for the next iteration (cascades)
+      coordsToClearSet.clear();
+
+      currentMatches = findMatches(boardAfterMove);
       isFirstLoop = false;
     }
 
