@@ -33,10 +33,35 @@ export default function App() {
   const [combo, setCombo] = useState(1);
   const [lineFlashes, setLineFlashes] = useState<{ key: number; type: "row" | "col"; index: number }[]>([]);
   const swipeStart = useSharedValue<{ x: number; y: number } | null>(null);
+  const [gameState, setGameState] = useState<"playing" | "game_over">("playing");
+  const [timeLeft, setTimeLeft] = useState(60);
+  const [maxCombo, setMaxCombo] = useState(1);
+
+  const resetGame = () => {
+    setGameState("playing");
+    setTimeLeft(60);
+    setScore(0);
+    setCombo(1);
+    setMaxCombo(1);
+    resetBoard();
+  };
 
   useEffect(() => {
-    resetBoard();
-  }, []);
+    if (gameState !== "playing") {
+      return;
+    }
+    const interval = setInterval(() => {
+      setTimeLeft((prevTime) => {
+        if (prevTime <= 1) {
+          clearInterval(interval);
+          setGameState("game_over");
+          return 0;
+        }
+        return prevTime - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [gameState]);
 
   const resetBoard = () => {
     const newBoard: Block[][] = [];
@@ -206,6 +231,7 @@ export default function App() {
           if (nextMatches.size > 0) {
             currentCombo++;
             setCombo(currentCombo);
+            if (currentCombo > maxCombo) setMaxCombo(currentCombo);
             processBomb(boardAfterDrop, nextMatches);
           } else {
             setBoard(boardAfterDrop);
@@ -266,6 +292,7 @@ export default function App() {
         if (nextMatches.size > 0) {
           currentCombo++;
           setCombo(currentCombo);
+          if (currentCombo > maxCombo) setMaxCombo(currentCombo);
           processMatches(boardAfterDrop, nextMatches, false);
         } else {
           setBoard(boardAfterDrop);
@@ -292,6 +319,7 @@ export default function App() {
   };
 
   const panGesture = Gesture.Pan()
+    .enabled(gameState === "playing")
     .onStart((event) => {
       swipeStart.value = { x: event.x, y: event.y };
     })
@@ -326,7 +354,10 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
         <StatusBar style="light" />
-        <Text style={styles.scoreText}>Score: {score}</Text>
+        <View style={styles.header}>
+          <Text style={styles.headerText}>Time: {timeLeft}</Text>
+          <Text style={styles.headerText}>Score: {score}</Text>
+        </View>
         {combo > 1 && <Text style={styles.comboText}>Combo x{combo}!</Text>}
         <GestureDetector gesture={panGesture}>
           <View
@@ -345,6 +376,16 @@ export default function App() {
             ))}
           </View>
         </GestureDetector>
+        {gameState === "game_over" && (
+          <View style={styles.gameOverContainer}>
+            <Text style={styles.gameOverText}>Game Over</Text>
+            <Text style={styles.resultText}>Final Score: {score}</Text>
+            <Text style={styles.resultText}>Highest Combo: {maxCombo}</Text>
+            <Pressable style={styles.playAgainButton} onPress={resetGame}>
+              <Text style={styles.playAgainButtonText}>Play Again</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
     </GestureHandlerRootView>
   );
@@ -439,7 +480,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  scoreText: {
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%",
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  headerText: {
     color: "white",
     fontSize: 24,
     fontWeight: "bold",
@@ -460,5 +508,38 @@ const styles = StyleSheet.create({
     height: "20%",
     backgroundColor: "white",
     borderRadius: 10,
+  },
+  gameOverContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  gameOverText: {
+    fontSize: 48,
+    fontWeight: "bold",
+    color: "white",
+    marginBottom: 20,
+  },
+  resultText: {
+    fontSize: 24,
+    color: "white",
+    marginBottom: 10,
+  },
+  playAgainButton: {
+    marginTop: 30,
+    paddingVertical: 15,
+    paddingHorizontal: 30,
+    backgroundColor: "#ffc107",
+    borderRadius: 10,
+  },
+  playAgainButtonText: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#111",
   },
 });
