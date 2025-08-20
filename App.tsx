@@ -20,6 +20,7 @@ type Block = {
   color: string;
   row: number;
   col: number;
+  specialType?: 'bomb' | 'color_bomb';
 };
 
 export default function App() {
@@ -58,65 +59,126 @@ export default function App() {
     setBoard(newBoard);
   };
 
-  const swap = (r1: number, c1: number, r2: number, c2: number) => {
-    const newBoard = board.map((row) => [...row]);
+  const swap = (brd: Block[][], r1: number, c1: number, r2: number, c2: number) => {
+    const newBoard = brd.map((row) => [...row]);
     const tmp = newBoard[r1][c1];
     newBoard[r1][c1] = { ...newBoard[r2][c2], row: r1, col: c1 };
     newBoard[r2][c2] = { ...tmp, row: r2, col: c2 };
     return newBoard;
   };
 
-  const findMatches = (brd: Block[][]) => {
-    const matches: [number, number][] = [];
-    // Horizontal
+  const findLines = (brd: Block[][]): [number, number][][] => {
+    const lines: [number, number][][] = [];
+    // Find horizontal lines
     for (let r = 0; r < numRows; r++) {
-      let count = 1;
-      for (let c = 1; c < numCols; c++) {
-        if (brd[r][c].color === brd[r][c - 1].color) count++;
-        else {
-          if (count >= 3) for (let k = 0; k < count; k++) matches.push([r, c - 1 - k]);
-          count = 1;
+      let c = 0;
+      while (c < numCols) {
+        const color = brd[r][c]?.color;
+        if (!color) {
+          c++;
+          continue;
         }
+        let matchLength = 1;
+        while (c + matchLength < numCols && brd[r][c + matchLength]?.color === color) {
+          matchLength++;
+        }
+        if (matchLength >= 3) {
+          const line: [number, number][] = [];
+          for (let i = 0; i < matchLength; i++) {
+            line.push([r, c + i]);
+          }
+          lines.push(line);
+        }
+        c += matchLength;
       }
-      if (count >= 3) for (let k = 0; k < count; k++) matches.push([r, numCols - 1 - k]);
     }
-    // Vertical
+    // Find vertical lines
     for (let c = 0; c < numCols; c++) {
-      let count = 1;
-      for (let r = 1; r < numRows; r++) {
-        if (brd[r][c].color === brd[r - 1][c].color) count++;
-        else {
-          if (count >= 3) for (let k = 0; k < count; k++) matches.push([r - 1 - k, c]);
-          count = 1;
+      let r = 0;
+      while (r < numRows) {
+        const color = brd[r][c]?.color;
+        if (!color) {
+          r++;
+          continue;
         }
+        let matchLength = 1;
+        while (r + matchLength < numRows && brd[r + matchLength][c]?.color === color) {
+          matchLength++;
+        }
+        if (matchLength >= 3) {
+          const line: [number, number][] = [];
+          for (let i = 0; i < matchLength; i++) {
+            line.push([r + i, c]);
+          }
+          lines.push(line);
+        }
+        r += matchLength;
       }
-      if (count >= 3) for (let k = 0; k < count; k++) matches.push([numRows - 1 - k, c]);
     }
-    return matches;
+    return lines;
   };
 
-  const clearAndDrop = (brd: Block[][], matches: [number, number][]) => {
-    const newBoard = brd.map((row) => [...row]);
-    matches.forEach(([r, c]) => {
-      newBoard[r][c] = { ...newBoard[r][c], color: "", id: `empty-${Math.random()}` };
+  const clearAndDrop = (
+    brd: Block[][],
+    blocksToClear: Set<string>,
+    specialBlock?: { pos: [number, number]; type: 'bomb' | 'color_bomb' }
+  ) => {
+    let newBoard = brd.map((row) => [...row]);
+    let bombCreated = false;
+
+    // Create special block if any
+    if (specialBlock) {
+      const [r, c] = specialBlock.pos;
+      newBoard[r][c] = { ...newBoard[r][c], specialType: specialBlock.type, id: `bomb-${Math.random()}` };
+      bombCreated = true;
+    }
+
+    // Clear matched blocks
+    blocksToClear.forEach((key) => {
+      const [r, c] = key.split(',').map(Number);
+      if (specialBlock && r === specialBlock.pos[0] && c === specialBlock.pos[1] && bombCreated) {
+        // Don't clear the block where the bomb was just placed
+      } else {
+        newBoard[r][c] = { ...newBoard[r][c], color: "", id: `empty-${Math.random()}` };
+      }
     });
+
+    // Gravity
     for (let c = 0; c < numCols; c++) {
-      let empty = 0;
+      let emptyCount = 0;
       for (let r = numRows - 1; r >= 0; r--) {
-        if (newBoard[r][c].color === "") empty++;
-        else if (empty > 0) {
-          newBoard[r + empty][c] = { ...newBoard[r][c], row: r + empty };
+        if (newBoard[r][c].color === "") {
+          emptyCount++;
+        } else if (emptyCount > 0) {
+          newBoard[r + emptyCount][c] = { ...newBoard[r][c], row: r + emptyCount };
           newBoard[r][c] = { ...newBoard[r][c], color: "", id: `empty-${Math.random()}` };
         }
       }
-      for (let r = 0; r < empty; r++) {
+      // Refill
+      for (let r = 0; r < emptyCount; r++) {
         newBoard[r][c] = { color: randomColor(), id: `new-${Math.random()}`, row: r, col: c };
       }
     }
+
     return newBoard;
   };
 
+  const getNeighbors = (r: number, c: number): [number, number][] => {
+    const neighbors: [number, number][] = [];
+    for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+            const nr = r + dr;
+            const nc = c + dc;
+            if (nr >= 0 && nr < numRows && nc >= 0 && nc < numCols) {
+                neighbors.push([nr, nc]);
+            }
+        }
+    }
+    return neighbors;
+  };
+
   const handlePress = (r: number, c: number) => {
+    if (timeRemaining === 0) return; // Game over
     if (!selected) {
       setSelected([r, c]);
       return;
@@ -127,29 +189,89 @@ export default function App() {
 
     if (Math.abs(r1 - r2) + Math.abs(c1 - c2) !== 1) return;
 
-    // Swap + animate
-    let newBoard = swap(r1, c1, r2, c2);
-    setBoard(newBoard);
+    const swappedBoard = swap(board, r1, c1, r2, c2);
+    let boardToProcess = swappedBoard;
 
-    const matches = findMatches(newBoard);
-    if (matches.length === 0) {
-      // Swap-back with delay to allow animation
+    const processCascades = (initialBoard: Block[][]) => {
+      let boardState = initialBoard;
+      const loop = () => {
+        const lines = findLines(boardState);
+        if (lines.length === 0) {
+          setBoard(boardState);
+          return;
+        }
+
+        const blocksToClear = new Set<string>();
+        lines.forEach(line => line.forEach(([lr, lc]) => blocksToClear.add(`${lr},${lc}`)));
+
+        setScore(s => s + blocksToClear.size * 10);
+        const nextBoard = clearAndDrop(boardState, blocksToClear);
+
+        setTimeout(() => {
+          boardState = nextBoard;
+          setBoard(nextBoard);
+          loop();
+        }, duration);
+      };
+      loop();
+    };
+
+    const block1 = board[r1][c1];
+    const block2 = board[r2][c2];
+    const specialBlock = block1.specialType ? block1 : (block2.specialType ? block2 : null);
+    const otherBlock = block1.specialType ? block2 : block1;
+
+    if (specialBlock) {
+      // Special Block Activation
+      const blocksToClear = new Set<string>();
+      blocksToClear.add(`${specialBlock.row},${specialBlock.col}`);
+
+      if (specialBlock.specialType === 'bomb') {
+        const neighbors = getNeighbors(specialBlock.row, specialBlock.col);
+        neighbors.forEach(([nr, nc]) => blocksToClear.add(`${nr},${nc}`));
+      } else if (specialBlock.specialType === 'color_bomb') {
+        board.flat().forEach(b => {
+          if (b.color === otherBlock.color) {
+            blocksToClear.add(`${b.row},${b.col}`);
+          }
+        });
+      }
+
+      setBoard(swappedBoard); // show the swap first
       setTimeout(() => {
-        const backBoard = swap(r1, c1, r2, c2);
-        setBoard(backBoard);
+        setScore(s => s + blocksToClear.size * 10);
+        const nextBoard = clearAndDrop(swappedBoard, blocksToClear);
+        processCascades(nextBoard);
       }, duration);
-      return;
-    }
 
-    // Clear & drop while matches exist
-    let clearedBoard = newBoard;
-    let nextMatches = matches;
-    while (nextMatches.length > 0) {
-      setScore((s) => s + nextMatches.length * 10); // Add score
-      clearedBoard = clearAndDrop(clearedBoard, nextMatches);
-      nextMatches = findMatches(clearedBoard);
+    } else {
+      // Normal Match
+      const lines = findLines(swappedBoard);
+      if (lines.length === 0) {
+        setBoard(swappedBoard);
+        setTimeout(() => setBoard(board), duration); // Swap back
+        return;
+      }
+
+      let specialBlockToCreate: { pos: [number, number]; type: 'bomb' | 'color_bomb' } | undefined;
+      const blocksToClear = new Set<string>();
+      for (const line of lines) {
+        const wasPartOfSwap = line.some(([lr, lc]) => (lr === r1 && lc === c1) || (lr === r2 && lc === c2));
+        if (wasPartOfSwap) {
+          const pos = line.find(([lr,lc]) => lr === r2 && lc === c2) ? [r2, c2] : [r1, c1];
+          if (line.length >= 5) specialBlockToCreate = { pos, type: 'color_bomb' };
+          else if (line.length === 4) specialBlockToCreate = { pos, type: 'bomb' };
+        }
+        line.forEach(([lr, lc]) => blocksToClear.add(`${lr},${lc}`));
+      }
+
+      setBoard(swappedBoard); // show the swap
+      setTimeout(() => {
+        setScore(s => s + blocksToClear.size * 10);
+        const nextBoard = clearAndDrop(swappedBoard, blocksToClear, specialBlockToCreate);
+        processCascades(nextBoard);
+      }, duration);
     }
-    setBoard(clearedBoard);
   };
 
   return (
@@ -210,10 +332,10 @@ function BlockView({ block, selected, onPress }: { block: Block; selected: boole
         onPress={onPress}
         style={{
           flex: 1,
-          backgroundColor: block.color || "black",
+          backgroundColor: block.specialType === 'color_bomb' ? 'black' : (block.color || "black"),
           borderRadius: cellSize / 2,
-          borderWidth: selected ? 3 : 1,
-          borderColor: selected ? "white" : "rgba(0,0,0,0.2)",
+          borderWidth: block.specialType === 'bomb' ? 4 : (selected ? 3 : 1),
+          borderColor: block.specialType ? 'white' : (selected ? "white" : "rgba(0,0,0,0.2)"),
         }}
       />
     </Animated.View>
