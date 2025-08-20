@@ -4,7 +4,11 @@ import { StatusBar } from "expo-status-bar";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withDelay, runOnJS } from "react-native-reanimated";
 import { GestureHandlerRootView, GestureDetector, Gesture } from "react-native-gesture-handler";
 import { useIsFocused } from '@react-navigation/native';
-import { getHighScores, saveHighScores, ScoreEntry } from "../storage";
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { getHighScores, saveHighScores, ScoreEntry } from '../storage';
+import { RootStackParamList } from '../../App';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
 const numRows = 8;
 const numCols = 8;
@@ -29,7 +33,7 @@ type Block = {
   status: "idle" | "clearing";
 };
 
-export default function GameScreen() {
+export default function GameScreen({ navigation }: Props) {
   const [board, setBoard] = useState<Block[][]>([]);
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(1);
@@ -444,9 +448,14 @@ export default function GameScreen() {
             <Text style={styles.gameOverText}>Game Over</Text>
             <Text style={styles.resultText}>Final Score: {score}</Text>
             <Text style={styles.resultText}>Highest Combo: {maxCombo}</Text>
-            <Pressable style={styles.playAgainButton} onPress={resetGame}>
-              <Text style={styles.playAgainButtonText}>Play Again</Text>
-            </Pressable>
+            <View style={styles.buttonContainer}>
+              <Pressable style={styles.button} onPress={resetGame}>
+                <Text style={styles.buttonText}>Play Again</Text>
+              </Pressable>
+              <Pressable style={styles.button} onPress={() => navigation.goBack()}>
+                <Text style={styles.buttonText}>Home</Text>
+              </Pressable>
+            </View>
           </View>
         )}
       </View>
@@ -593,14 +602,18 @@ const styles = StyleSheet.create({
     color: "white",
     marginBottom: 10,
   },
-  playAgainButton: {
+  buttonContainer: {
+    flexDirection: 'row',
     marginTop: 30,
+  },
+  button: {
+    marginHorizontal: 10,
     paddingVertical: 15,
     paddingHorizontal: 30,
     backgroundColor: "#ffc107",
     borderRadius: 10,
   },
-  playAgainButtonText: {
+  buttonText: {
     fontSize: 20,
     fontWeight: "bold",
     color: "#111",

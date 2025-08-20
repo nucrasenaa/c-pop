@@ -2,9 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, FlatList } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useIsFocused } from '@react-navigation/native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { getHighScores, ScoreEntry } from '../storage';
+import { RootStackParamList } from '../../App';
 
-export default function HomeScreen({ navigation }: { navigation: any }) {
+type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
+
+export default function HomeScreen({ navigation }: Props) {
   const [highScores, setHighScores] = useState<ScoreEntry[]>([]);
   const isFocused = useIsFocused();
 
