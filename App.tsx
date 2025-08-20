@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, Dimensions, Pressable, Text } from "react-native";
+import { View, StyleSheet, Dimensions, Text } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import Animated, { useSharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from "react-native-reanimated";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 
 const numRows = 8;
 const numCols = 8;
@@ -25,7 +26,6 @@ type Block = {
 
 export default function App() {
   const [board, setBoard] = useState<Block[][]>([]);
-  const [selected, setSelected] = useState<[number, number] | null>(null);
   const [score, setScore] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(60);
 
@@ -177,17 +177,20 @@ export default function App() {
     return neighbors;
   };
 
-  const handlePress = (r: number, c: number) => {
+  const handleSwipe = (r1: number, c1: number, direction: 'up' | 'down' | 'left' | 'right') => {
     if (timeRemaining === 0) return; // Game over
-    if (!selected) {
-      setSelected([r, c]);
-      return;
-    }
-    const [r1, c1] = selected;
-    const [r2, c2] = [r, c];
-    setSelected(null);
 
-    if (Math.abs(r1 - r2) + Math.abs(c1 - c2) !== 1) return;
+    let r2 = r1, c2 = c1;
+    switch (direction) {
+      case 'up': r2--; break;
+      case 'down': r2++; break;
+      case 'left': c2--; break;
+      case 'right': c2++; break;
+    }
+
+    if (r2 < 0 || r2 >= numRows || c2 < 0 || c2 >= numCols) {
+      return; // Invalid swipe off board
+    }
 
     const swappedBoard = swap(board, r1, c1, r2, c2);
     let boardToProcess = swappedBoard;
@@ -275,7 +278,7 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
+    <GestureHandlerRootView style={styles.container}>
       <StatusBar style="light" />
       <Text style={styles.scoreText}>Score: {score}</Text>
       <View style={styles.boardContainer}>
@@ -290,18 +293,17 @@ export default function App() {
             <BlockView
               key={block.id}
               block={block}
-              selected={selected && selected[0] === block.row && selected[1] === block.col}
-              onPress={() => handlePress(block.row, block.col)}
+              onSwipe={(direction) => handleSwipe(block.row, block.col, direction)}
             />
           ))}
         </View>
       </View>
       <Text style={styles.timerText}>Time: {timeRemaining}</Text>
-    </View>
+    </GestureHandlerRootView>
   );
 }
 
-function BlockView({ block, selected, onPress }: { block: Block; selected: boolean; onPress: () => void }) {
+function BlockView({ block, onSwipe }: { block: Block; onSwipe: (direction: 'up' | 'down' | 'left' | 'right') => void }) {
   const x = useSharedValue(block.col * cellSize);
   const y = useSharedValue(block.row * cellSize);
 
@@ -314,31 +316,45 @@ function BlockView({ block, selected, onPress }: { block: Block; selected: boole
     transform: [{ translateX: x.value }, { translateY: y.value }],
   }));
 
+  const panGesture = Gesture.Pan()
+    .onEnd((e) => {
+      const { translationX, translationY } = e;
+      const swipeThreshold = cellSize / 4;
+
+      if (Math.abs(translationX) > swipeThreshold || Math.abs(translationY) > swipeThreshold) {
+        if (Math.abs(translationX) > Math.abs(translationY)) {
+          runOnJS(onSwipe)(translationX > 0 ? 'right' : 'left');
+        } else {
+          runOnJS(onSwipe)(translationY > 0 ? 'down' : 'up');
+        }
+      }
+    });
+
   return (
-    <Animated.View
-      style={[
-        {
-          width: cellSize,
-          height: cellSize,
-          position: "absolute",
-          top: 0,
-          left: 0,
-          zIndex: selected ? 1 : 0,
-        },
-        styleAnim,
-      ]}
-    >
-      <Pressable
-        onPress={onPress}
-        style={{
-          flex: 1,
-          backgroundColor: block.specialType === 'color_bomb' ? 'black' : (block.color || "black"),
-          borderRadius: cellSize / 2,
-          borderWidth: block.specialType === 'bomb' ? 4 : (selected ? 3 : 1),
-          borderColor: block.specialType ? 'white' : (selected ? "white" : "rgba(0,0,0,0.2)"),
-        }}
-      />
-    </Animated.View>
+    <GestureDetector gesture={panGesture}>
+      <Animated.View
+        style={[
+          {
+            width: cellSize,
+            height: cellSize,
+            position: "absolute",
+            top: 0,
+            left: 0,
+          },
+          styleAnim,
+        ]}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: block.specialType === 'color_bomb' ? 'black' : (block.color || "black"),
+            borderRadius: cellSize / 2,
+            borderWidth: block.specialType === 'bomb' ? 4 : 1,
+            borderColor: block.specialType ? 'white' : "rgba(0,0,0,0.2)",
+          }}
+        />
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
