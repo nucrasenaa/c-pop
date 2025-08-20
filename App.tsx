@@ -34,6 +34,7 @@ export default function App() {
   const [isGameOver, setIsGameOver] = useState(false);
   const [announcement, setAnnouncement] = useState<{ text: string, key: number } | null>(null);
   const [comboResetTimer, setComboResetTimer] = useState<NodeJS.Timeout | null>(null);
+  const [isBoardLocked, setIsBoardLocked] = useState(false);
 
   useEffect(() => {
     resetBoard();
@@ -185,7 +186,8 @@ export default function App() {
   };
 
   const handleSwipe = (r1: number, c1: number, direction: 'up' | 'down' | 'left' | 'right') => {
-    if (timeRemaining === 0) return; // Game over
+    if (isBoardLocked || timeRemaining === 0) return;
+    setIsBoardLocked(true);
 
     let r2 = r1, c2 = c1;
     switch (direction) {
@@ -226,6 +228,7 @@ export default function App() {
         const matches = findMatches(boardState);
         if (matches.length === 0) {
           setBoard(boardState);
+          setIsBoardLocked(false); // Unlock board
           return;
         }
 
@@ -317,7 +320,10 @@ export default function App() {
       const matches = findMatches(swappedBoard);
       if (matches.length === 0) {
         setBoard(swappedBoard);
-        setTimeout(() => setBoard(board), duration); // Swap back. No combo reset here anymore.
+        setTimeout(() => {
+          setBoard(board);
+          setIsBoardLocked(false); // Unlock board
+        }, duration);
         return;
       }
 
@@ -510,12 +516,14 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   modalContainer: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    width: '100%',
-    height: '100%',
   },
   modalView: {
     margin: 20,
